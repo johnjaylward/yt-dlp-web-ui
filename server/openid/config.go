@@ -31,7 +31,7 @@ func Configure() {
 		ClientSecret: config.Instance().OpenId.ClientSecret,
 		RedirectURL:  config.Instance().OpenId.RedirectURL,
 		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+		Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "offline_access"},
 	}
 
 	verifier = provider.Verifier(&oidc.Config{

@@ -19,9 +19,9 @@ import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
 import { grey } from '@mui/material/colors'
 import { useAtomValue } from 'jotai'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Outlet } from 'react-router-dom'
-import { settingsState } from './atoms/settings'
+import { serverURL, settingsState } from './atoms/settings'
 import AppBar from './components/AppBar'
 import Drawer from './components/Drawer'
 import Footer from './components/Footer'
@@ -37,6 +37,37 @@ export default function Layout() {
   const [open, setOpen] = useState(false)
 
   const settings = useAtomValue(settingsState)
+  const url = useAtomValue(serverURL)
+
+  useEffect(() => {
+    // Internal-password sessions use a bearer token in localStorage. OIDC
+    // sessions use HttpOnly cookies, so ask the server to refresh them.
+    if (localStorage.getItem('token')) return
+
+    let refreshing = false
+    const refreshOIDCToken = async () => {
+      if (refreshing || localStorage.getItem('token')) return
+      refreshing = true
+      try {
+        await fetch(`${url}/auth/openid/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+        })
+      } catch {
+        // The server will reject protected requests if refresh cannot proceed.
+      } finally {
+        refreshing = false
+      }
+    }
+
+    void refreshOIDCToken()
+    const interval = window.setInterval(refreshOIDCToken, 30_000)
+    window.addEventListener('focus', refreshOIDCToken)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refreshOIDCToken)
+    }
+  }, [url])
 
   const mode = settings.theme
   const theme = useMemo(() =>

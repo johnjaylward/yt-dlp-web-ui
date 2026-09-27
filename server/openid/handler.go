@@ -2,11 +2,13 @@ package openid
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -123,14 +125,10 @@ func SingIn(w http.ResponseWriter, r *http.Request) {
 	_, err := doAuthentification(r, func(t *oauth2.Token) {
 		idToken, _ := t.Extra("id_token").(string)
 
-		http.SetCookie(w, &http.Cookie{
-			Name:     "oid-token",
-			Value:    idToken,
-			HttpOnly: true,
-			Path:     "/",
-			Secure:   r.TLS != nil,
-			// MaxAge:   int(time.Hour * 24 * 30), XXX: overflows on 32 bit architectures.
-		})
+		setOIDCookie(w, r, "oid-token", idToken)
+		if t.RefreshToken != "" {
+			setOIDCookie(w, r, "oid-refresh-token", t.RefreshToken)
+		}
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -141,9 +139,22 @@ func SingIn(w http.ResponseWriter, r *http.Request) {
 }
 
 func Refresh(w http.ResponseWriter, r *http.Request) {
-	refreshToken := r.URL.Query().Get("refresh-token")
+	if !config.Instance().OpenId.UseOpenId {
+		http.NotFound(w, r)
+		return
+	}
 
-	ts := oauth2Config.TokenSource(r.Context(), &oauth2.Token{RefreshToken: refreshToken})
+	refreshCookie, err := r.Cookie("oid-refresh-token")
+	if err != nil || refreshCookie.Value == "" {
+		http.Error(w, "missing OpenID refresh token", http.StatusUnauthorized)
+		return
+	}
+	if idCookie, err := r.Cookie("oid-token"); err == nil && !tokenExpiresSoon(idCookie.Value) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	ts := oauth2Config.TokenSource(r.Context(), &oauth2.Token{RefreshToken: refreshCookie.Value})
 
 	token, err := ts.Token()
 	if err != nil {
@@ -151,21 +162,42 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "oid-token",
-		Value:    token.AccessToken,
-		HttpOnly: true,
-		Path:     "/",
-		Secure:   r.TLS != nil,
-		// MaxAge:   int(time.Hour * 24 * 30), XXX: overflows on 32 bit architectures.
-	})
-
-	token.AccessToken = "*redacted*"
-
-	if err := json.NewEncoder(w).Encode(token); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	idToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		http.Error(w, "refresh response did not contain an ID token", http.StatusBadGateway)
 		return
 	}
+	if _, err := verifier.Verify(r.Context(), idToken); err != nil {
+		http.Error(w, "refreshed ID token is invalid: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	setOIDCookie(w, r, "oid-token", idToken)
+	if token.RefreshToken != "" {
+		setOIDCookie(w, r, "oid-refresh-token", token.RefreshToken)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func setOIDCookie(w http.ResponseWriter, r *http.Request, name, value string) {
+	http.SetCookie(w, &http.Cookie{Name: name, Value: value, HttpOnly: true, Path: "/", Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode})
+}
+
+func tokenExpiresSoon(token string) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return true
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return true
+	}
+	var claims struct {
+		Exp int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil || claims.Exp == 0 {
+		return true
+	}
+	return time.Until(time.Unix(claims.Exp, 0)) <= time.Minute
 }
 
 func Logout(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +207,10 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Secure:   r.TLS != nil,
 		MaxAge:   -1,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name: "oid-refresh-token", HttpOnly: true, Path: "/", Secure: r.TLS != nil,
+		SameSite: http.SameSiteLaxMode, MaxAge: -1,
 	})
 
 	http.SetCookie(w, &http.Cookie{
