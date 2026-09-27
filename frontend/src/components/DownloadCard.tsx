@@ -16,7 +16,8 @@ import {
 import { useAtomValue } from 'jotai'
 import { useCallback } from 'react'
 import { serverURL } from '../atoms/settings'
-import { RPCResult } from '../types'
+import { ProcessStatus } from '../types'
+import type { RPCResult } from '../types'
 import { base64URLEncode, ellipsis, formatSize, formatSpeedMiB, mapProcessStatus } from '../utils'
 import ResolutionBadge from './ResolutionBadge'
 import ClearIcon from '@mui/icons-material/Clear'
@@ -36,6 +37,11 @@ const DownloadCard: React.FC<Props> = ({ download, onStop, onCopy }) => {
   const isCompleted = useCallback(
     () => download.progress.percentage === '-1',
     [download.progress.percentage]
+  )
+  const isTerminal = useCallback(
+    () => download.progress.process_status === ProcessStatus.COMPLETED
+      || download.progress.process_status === ProcessStatus.ERRORED,
+    [download.progress.process_status]
   )
 
   const percentageToNumber = useCallback(
@@ -109,8 +115,8 @@ const DownloadCard: React.FC<Props> = ({ download, onStop, onCopy }) => {
         </CardContent>
       </CardActionArea>
       <CardActions>
-        {isCompleted() ?
-          <Tooltip title="Clear from the view">
+        {isTerminal() ?
+          <Tooltip title={download.progress.process_status === ProcessStatus.ERRORED ? 'Clear failed download' : 'Clear from the view'}>
             <IconButton
               onClick={onStop}
             >

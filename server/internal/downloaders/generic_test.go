@@ -3,6 +3,7 @@ package downloaders
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"testing"
@@ -42,6 +43,36 @@ func TestRestoreFromSnapshotUsesURLAndCompletion(t *testing.T) {
 	}
 	if !d.IsCompleted() {
 		t.Fatal("restored download is not marked completed")
+	}
+}
+
+func TestRestoreFromSnapshotReusesDownloadTempPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "downloads")
+	d := NewGenericDownload("https://example.com/video", nil).(*GenericDownloader)
+	d.output.Path = root
+	d.output.Filename = "%(title)s.%(ext)s"
+
+	originalTempPath := d.tempPath(d.output.Path)
+	if err := os.MkdirAll(originalTempPath, 0750); err != nil {
+		t.Fatal(err)
+	}
+	partialFile := filepath.Join(originalTempPath, "video.part")
+	if err := os.WriteFile(partialFile, []byte("partial download"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := d.Status()
+	restored := NewGenericDownload("", nil).(*GenericDownloader)
+	if err := restored.RestoreFromSnapshot(&snapshot); err != nil {
+		t.Fatal(err)
+	}
+
+	resumedTempPath := restored.tempPath(restored.output.Path)
+	if resumedTempPath != originalTempPath {
+		t.Fatalf("resumed temp path = %q, want %q", resumedTempPath, originalTempPath)
+	}
+	if _, err := os.Stat(filepath.Join(resumedTempPath, "video.part")); err != nil {
+		t.Fatalf("partial file is not available at resumed temp path: %v", err)
 	}
 }
 
@@ -89,6 +120,53 @@ func TestArgsSanitizerAllowsDefaultFrontendArgument(t *testing.T) {
 	}
 	if len(params) != 7 {
 		t.Fatalf("argsSanitizer() returned %d arguments, want 7", len(params))
+	}
+}
+
+func TestCleanupFailedArtifactsRemovesOnlyJobTempDirectory(t *testing.T) {
+	root := t.TempDir()
+	d := NewGenericDownload("https://example.com/video", nil).(*GenericDownloader)
+	d.output.Path = root
+	d.progress.Status = internal.StatusErrored
+
+	jobTempDir := d.tempPath(root)
+	if err := os.MkdirAll(jobTempDir, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(jobTempDir, "video.part"), []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedFile := filepath.Join(root, "unrelated.part")
+	if err := os.WriteFile(unrelatedFile, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.CleanupFailedArtifacts(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(jobTempDir); !os.IsNotExist(err) {
+		t.Fatalf("job temp directory still exists, stat error = %v", err)
+	}
+	if _, err := os.Stat(unrelatedFile); err != nil {
+		t.Fatalf("unrelated artifact was removed: %v", err)
+	}
+}
+
+func TestCleanupFailedArtifactsKeepsNonErroredTempDirectory(t *testing.T) {
+	root := t.TempDir()
+	d := NewGenericDownload("https://example.com/video", nil).(*GenericDownloader)
+	d.output.Path = root
+	d.progress.Status = internal.StatusCompleted
+
+	jobTempDir := d.tempPath(root)
+	if err := os.MkdirAll(jobTempDir, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CleanupFailedArtifacts(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(jobTempDir); err != nil {
+		t.Fatalf("non-errored temp directory was removed: %v", err)
 	}
 }
 

@@ -134,6 +134,7 @@ const DownloadsTableView: React.FC = () => {
   }
 
   const stop = (r: RPCResult) => r.progress.process_status === ProcessStatus.COMPLETED
+    || r.progress.process_status === ProcessStatus.ERRORED
     ? client.clear(r.id)
     : client.kill(r.id)
 
@@ -175,7 +176,9 @@ const DownloadsTableView: React.FC = () => {
               size="small"
               onClick={() => stop(download)}
             >
-              {download.progress.percentage === '-1' ? <DeleteIcon /> : <StopCircleIcon />}
+              {download.progress.process_status === ProcessStatus.COMPLETED || download.progress.process_status === ProcessStatus.ERRORED
+                ? <DeleteIcon />
+                : <StopCircleIcon />}
 
             </IconButton>
             {download.progress.percentage === '-1' &&

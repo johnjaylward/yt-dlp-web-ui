@@ -2,6 +2,8 @@ package downloaders
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"os"
@@ -93,7 +95,13 @@ func (g *GenericDownloader) Start() (startErr error) {
 		out.Filename = g.output.Filename
 	}
 
-	buildFilename(&g.output)
+	buildFilename(&out)
+	g.output.Path = out.Path
+	g.output.Filename = out.Filename
+	tempPath := g.tempPath(out.Path)
+	if err := os.MkdirAll(tempPath, 0750); err != nil {
+		return err
+	}
 
 	templateReplacer := strings.NewReplacer("\n", "", "\t", "", " ", "")
 
@@ -107,6 +115,8 @@ func (g *GenericDownloader) Start() (startErr error) {
 		"--progress-template",
 		templateReplacer.Replace(postprocessTemplate),
 		"--no-exec",
+		"--paths",
+		"temp:" + tempPath,
 		"--js-runtimes",
 		config.Instance().Paths.JSRuntimePath,
 		"--remote-components",
@@ -174,7 +184,34 @@ func (g *GenericDownloader) Start() (startErr error) {
 	go printYtDlpErrors(stderr, g.Id, g.URL)
 
 	g.SetPending(false)
-	return cmd.Wait()
+	err = cmd.Wait()
+	if err == nil {
+		if cleanupErr := os.RemoveAll(tempPath); cleanupErr != nil {
+			slog.Warn("failed to remove download temp directory",
+				slog.String("id", g.Id),
+				slog.String("path", tempPath),
+				slog.Any("err", cleanupErr),
+			)
+		}
+	}
+	return err
+}
+
+func (g *GenericDownloader) tempPath(root string) string {
+	idHash := sha256.Sum256([]byte(g.Id))
+	return filepath.Join(root, ".yt-dlp-webui-temp", hex.EncodeToString(idHash[:]))
+}
+
+func (g *GenericDownloader) CleanupFailedArtifacts() error {
+	if g.progress.Status != internal.StatusErrored {
+		return nil
+	}
+
+	root := g.output.Path
+	if root == "" {
+		root = config.Instance().Paths.DownloadPath
+	}
+	return os.RemoveAll(g.tempPath(root))
 }
 
 func (g *GenericDownloader) Stop() error {

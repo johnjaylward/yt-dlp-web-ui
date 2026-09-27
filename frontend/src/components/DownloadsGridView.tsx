@@ -19,6 +19,7 @@ const DownloadsGridView: React.FC = () => {
   const [isPending, startTransition] = useTransition()
 
   const stop = async (r: RPCResult) => r.progress.process_status === ProcessStatus.COMPLETED
+    || r.progress.process_status === ProcessStatus.ERRORED
     ? await client.clear(r.id)
     : await client.kill(r.id)
 

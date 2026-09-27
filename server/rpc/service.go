@@ -202,6 +202,13 @@ func (s *Service) KillAll(args NoArgs, killed *string) error {
 // Remove a process from the db rendering it unusable if active
 func (s *Service) Clear(args string, killed *string) error {
 	slog.Info("Clearing process with id", slog.String("id", args))
+	if process, err := s.db.Get(args); err == nil {
+		if downloader, ok := process.(*downloaders.GenericDownloader); ok {
+			if err := downloader.CleanupFailedArtifacts(); err != nil {
+				return err
+			}
+		}
+	}
 	s.db.Delete(args)
 	return nil
 }
