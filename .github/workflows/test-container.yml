@@ -22,8 +22,17 @@ jobs:
     - uses: actions/setup-go@v7
       with:
         go-version-file: go.mod
+    - uses: docker/setup-buildx-action@v4
     - name: Check yt-dlp allowlist against packaged binary
-      run: docker build . --file Dockerfile --tag yt-dlp-webui-ci:latest
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        file: Dockerfile
+        tags: yt-dlp-webui-ci:latest
+        platforms: linux/amd64
+        load: true
+        cache-from: type=gha,scope=yt-dlp-webui
+        cache-to: type=gha,mode=max,scope=yt-dlp-webui,ignore-error=true
     - name: Capture packaged yt-dlp options
       run: docker run --rm --entrypoint yt-dlp yt-dlp-webui-ci:latest --help > yt-dlp-help.txt
     - name: Test allowlist against packaged yt-dlp

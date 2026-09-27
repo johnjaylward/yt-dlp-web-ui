@@ -98,6 +98,8 @@ jobs:
             ${{ steps.meta-ghcr.outputs.tags }}
             ${{ steps.meta-dockerhub.outputs.tags }}
           labels: ${{ steps.meta-ghcr.outputs.labels }}
+          cache-from: type=gha,scope=yt-dlp-webui
+          cache-to: type=gha,mode=max,scope=yt-dlp-webui,ignore-error=true
 
       - name: Sign the GHCR image
         run: cosign sign --yes ghcr.io/${{ github.repository }}@${{ steps.build-and-push.outputs.digest }}
