@@ -1,4 +1,5 @@
-name: Docker Image CI
+name: Build and test container
+run-name: Build and test (${{ github.ref_name }})
 
 on:
   pull_request:
@@ -13,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-go@v5
+    - uses: actions/checkout@v7
+    - uses: actions/setup-go@v7
       with:
         go-version-file: go.mod
     - name: Check yt-dlp allowlist against packaged binary
@@ -23,5 +24,5 @@ jobs:
       run: docker run --rm --entrypoint yt-dlp yt-dlp-webui-ci:latest --help > yt-dlp-help.txt
     - name: Test allowlist against packaged yt-dlp
       env:
-        YTDLP_HELP_PATH: yt-dlp-help.txt
+        YTDLP_HELP_PATH: ${{ github.workspace }}/yt-dlp-help.txt
       run: go test ./server/internal/downloaders -run '^TestAllowedFlagsSupportedByYtDlp$'
