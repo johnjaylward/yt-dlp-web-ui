@@ -1,5 +1,5 @@
-name: Publish container images
-run-name: Publish container images (${{ github.ref_name }})
+name: Build, Test, and Publish container images
+run-name: Build, Test, and Publish container images (${{ github.ref_name }})
 on:
   release:
     types: [published]
@@ -9,6 +9,11 @@ on:
     - cron : '0 1 * * 0'
 
 jobs:
+  build-test:
+    uses: ./.github/workflows/test-container.yml
+    permissions:
+      contents: read
+
   check-publish-secrets:
     runs-on: ubuntu-latest
     outputs:
@@ -27,7 +32,7 @@ jobs:
           fi
 
   build-and-publish:
-    needs: check-publish-secrets
+    needs: [ build-test, check-publish-secrets ]
     runs-on: ubuntu-latest
     permissions:
       contents: read

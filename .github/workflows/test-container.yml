@@ -2,19 +2,23 @@ name: Build and test container
 run-name: Build and test (${{ github.ref_name }})
 
 on:
+  workflow_call:
   pull_request:
-    branches: [ "master", "server-v4" ]
   push:
-    branches: [ "master", "server-v4" ]
+    branches-ignore: [ master, server-v4 ]
 
 jobs:
 
   build:
 
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
     - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
     - uses: actions/setup-go@v7
       with:
         go-version-file: go.mod
