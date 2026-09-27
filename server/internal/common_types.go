@@ -35,6 +35,8 @@ type DownloadProgress struct {
 // as JSON-RPC result field
 type ProcessSnapshot struct {
 	Id             string                  `json:"id"`
+	URL            string                  `json:"url"`
+	Completed      bool                    `json:"completed"`
 	Progress       DownloadProgress        `json:"progress"`
 	Info           common.DownloadMetadata `json:"info"`
 	Output         DownloadOutput          `json:"output"`

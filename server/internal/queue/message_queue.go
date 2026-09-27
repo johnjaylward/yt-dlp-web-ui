@@ -80,7 +80,10 @@ func (m *MessageQueue) downloadWorker(workerId int) {
 			)
 
 			m.metadataQueue <- p
-			slog.Info("queued for metadata", slog.String("id", p.GetId()))
+			slog.Info("queued for metadata",
+				slog.String("id", p.GetId()),
+				slog.String("url", p.GetUrl()),
+			)
 
 			p.Start()
 		}
@@ -101,6 +104,7 @@ func (m *MessageQueue) metadataWorker() {
 
 			slog.Info("metadata worker started",
 				slog.String("id", p.GetId()),
+				slog.String("url", p.GetUrl()),
 			)
 
 			if p.IsCompleted() {
@@ -110,7 +114,6 @@ func (m *MessageQueue) metadataWorker() {
 				continue
 			}
 
-			slog.Info("metadata worker started", slog.String("id", p.GetId()))
 			p.SetMetadata(metadata.DefaultFetcher)
 		}
 	}

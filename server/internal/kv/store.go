@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -132,16 +133,40 @@ func (m *Store) Restore(mq *queue.MessageQueue) {
 		})
 	})
 
+	slog.Info("restoring persisted downloads", slog.Int("count", len(snapshot)))
+
 	for _, snap := range snapshot {
 		var restored downloaders.Downloader
 		if snap.DownloaderName == "generic" {
 			d := downloaders.NewGenericDownload("", []string{})
 			err := d.RestoreFromSnapshot(&snap)
 			if err != nil {
+				slog.Error("failed to restore download", slog.String("id", snap.Id), slog.Any("err", err))
+				continue
+			}
+			if strings.TrimSpace(d.GetUrl()) == "" {
+				slog.Warn("discarding persisted download with empty URL", slog.String("id", snap.Id))
+				if err := m.db.Update(func(tx *bolt.Tx) error {
+					b := tx.Bucket(bucket)
+					if b == nil {
+						return nil
+					}
+					return b.Delete([]byte(snap.Id))
+				}); err != nil {
+					slog.Error("failed to remove persisted download with empty URL",
+						slog.String("id", snap.Id),
+						slog.Any("err", err),
+					)
+				}
 				continue
 			}
 			restored = d
 			m.table[snap.Id] = restored
+			slog.Info("restored persisted download",
+				slog.String("id", snap.Id),
+				slog.String("url", restored.GetUrl()),
+				slog.Bool("completed", restored.IsCompleted()),
+			)
 			if !restored.(*downloaders.GenericDownloader).DownloaderBase.Completed {
 				mq.Publish(restored)
 			}

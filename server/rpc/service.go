@@ -3,6 +3,7 @@ package rpc
 import (
 	"errors"
 	"log/slog"
+	"strings"
 
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/formats"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal"
@@ -29,6 +30,10 @@ type NoArgs struct{}
 // Exec spawns a Process.
 // The result of the execution is the newly spawned process Id.
 func (s *Service) Exec(args internal.DownloadRequest, result *string) error {
+	if strings.TrimSpace(args.URL) == "" {
+		return errors.New("download URL cannot be empty")
+	}
+
 	d := downloaders.NewGenericDownload(args.URL, args.Params)
 	d.SetOutput(internal.DownloadOutput{
 		Path:     args.Path,
@@ -45,6 +50,10 @@ func (s *Service) Exec(args internal.DownloadRequest, result *string) error {
 // Exec spawns a Process.
 // The result of the execution is the newly spawned process Id.
 func (s *Service) ExecPlaylist(args internal.DownloadRequest, result *string) error {
+	if strings.TrimSpace(args.URL) == "" {
+		return errors.New("playlist URL cannot be empty")
+	}
+
 	err := playlist.PlaylistDetect(args, s.mq, s.db)
 	if err != nil {
 		return err

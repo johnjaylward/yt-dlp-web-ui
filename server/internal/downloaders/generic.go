@@ -120,7 +120,11 @@ func (g *GenericDownloader) Start() error {
 
 	params := append(baseParams, g.Params...)
 
-	slog.Info("requesting download", slog.String("url", g.URL), slog.Any("params", params))
+	slog.Info("requesting download",
+		slog.String("id", g.Id),
+		slog.String("url", g.URL),
+		slog.Any("params", params),
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -190,6 +194,8 @@ func (g *GenericDownloader) Stop() error {
 func (g *GenericDownloader) Status() internal.ProcessSnapshot {
 	return internal.ProcessSnapshot{
 		Id:             g.Id,
+		URL:            g.URL,
+		Completed:      g.Completed,
 		Info:           g.Metadata,
 		Progress:       g.progress,
 		Output:         g.output,
@@ -222,8 +228,12 @@ func (g *GenericDownloader) RestoreFromSnapshot(snap *internal.ProcessSnapshot) 
 	s := *snap
 
 	g.Id = s.Id
-	g.URL = s.Info.URL
+	g.URL = s.URL
+	if g.URL == "" {
+		g.URL = s.Info.URL
+	}
 	g.Metadata = s.Info
+	g.Completed = s.Completed || s.Progress.Status == internal.StatusCompleted
 	g.progress = s.Progress
 	g.output = s.Output
 	g.Params = s.Params

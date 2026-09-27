@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -60,8 +59,6 @@ func DefaultFetcher(url string) (*common.DownloadMetadata, error) {
 		defer close(stderrDone)
 		io.Copy(&bufferedStderr, stderr)
 	}()
-
-	slog.Info("retrieving metadata", slog.String("url", url))
 
 	decodeErr := json.NewDecoder(stdout).Decode(&meta)
 	waitErr := cmd.Wait()

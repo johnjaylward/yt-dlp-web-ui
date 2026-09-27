@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,6 +49,10 @@ func NewService(
 }
 
 func (s *Service) Exec(req internal.DownloadRequest) (string, error) {
+	if strings.TrimSpace(req.URL) == "" {
+		return "", errors.New("download URL cannot be empty")
+	}
+
 	d := downloaders.NewGenericDownload(req.URL, req.Params)
 	d.SetOutput(internal.DownloadOutput{
 		Path:     req.Path,
@@ -61,6 +66,10 @@ func (s *Service) Exec(req internal.DownloadRequest) (string, error) {
 }
 
 func (s *Service) ExecPlaylist(req internal.DownloadRequest) error {
+	if strings.TrimSpace(req.URL) == "" {
+		return errors.New("playlist URL cannot be empty")
+	}
+
 	return playlist.PlaylistDetect(req, s.mq, s.mdb)
 }
 
