@@ -128,6 +128,8 @@ func SingIn(w http.ResponseWriter, r *http.Request) {
 		setOIDCookie(w, r, "oid-token", idToken)
 		if t.RefreshToken != "" {
 			setOIDCookie(w, r, "oid-refresh-token", t.RefreshToken)
+		} else {
+			expireOIDCookie(w, r, "oid-refresh-token")
 		}
 	})
 	if err != nil {
@@ -178,8 +180,23 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func RefreshStatus(w http.ResponseWriter, r *http.Request) {
+	refreshCookie, err := r.Cookie("oid-refresh-token")
+	available := config.Instance().OpenId.UseOpenId && err == nil && refreshCookie.Value != ""
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(struct {
+		RefreshAvailable bool `json:"refreshAvailable"`
+	}{RefreshAvailable: available}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
 func setOIDCookie(w http.ResponseWriter, r *http.Request, name, value string) {
 	http.SetCookie(w, &http.Cookie{Name: name, Value: value, HttpOnly: true, Path: "/", Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode})
+}
+
+func expireOIDCookie(w http.ResponseWriter, r *http.Request, name string) {
+	http.SetCookie(w, &http.Cookie{Name: name, HttpOnly: true, Path: "/", Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode, MaxAge: -1})
 }
 
 func tokenExpiresSoon(token string) bool {

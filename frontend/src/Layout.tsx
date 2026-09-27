@@ -40,13 +40,14 @@ export default function Layout() {
   const url = useAtomValue(serverURL)
 
   useEffect(() => {
-    // Internal-password sessions use a bearer token in localStorage. OIDC
-    // sessions use HttpOnly cookies, so ask the server to refresh them.
+    // Internal-password sessions use a bearer token in localStorage.
     if (localStorage.getItem('token')) return
 
+    let active = true
     let refreshing = false
+    let interval: number | undefined
     const refreshOIDCToken = async () => {
-      if (refreshing || localStorage.getItem('token')) return
+      if (!active || refreshing || localStorage.getItem('token')) return
       refreshing = true
       try {
         await fetch(`${url}/auth/openid/refresh`, {
@@ -60,11 +61,25 @@ export default function Layout() {
       }
     }
 
-    void refreshOIDCToken()
-    const interval = window.setInterval(refreshOIDCToken, 30_000)
-    window.addEventListener('focus', refreshOIDCToken)
+    const startWatcherIfRefreshAvailable = async () => {
+      try {
+        const response = await fetch(`${url}/auth/openid/refresh-status`, { credentials: 'include' })
+        if (!response.ok) return
+        const status: { refreshAvailable: boolean } = await response.json()
+        if (!active || !status.refreshAvailable || localStorage.getItem('token')) return
+
+        void refreshOIDCToken()
+        interval = window.setInterval(refreshOIDCToken, 30_000)
+        window.addEventListener('focus', refreshOIDCToken)
+      } catch {
+        // If the server cannot confirm a refresh token, don't start polling.
+      }
+    }
+
+    void startWatcherIfRefreshAvailable()
     return () => {
-      window.clearInterval(interval)
+      active = false
+      if (interval !== undefined) window.clearInterval(interval)
       window.removeEventListener('focus', refreshOIDCToken)
     }
   }, [url])

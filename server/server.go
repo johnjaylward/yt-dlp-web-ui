@@ -224,6 +224,7 @@ func newServer(c serverConfig) *http.Server {
 		r.Route("/openid", func(r chi.Router) {
 			r.Get("/login", openid.Login)
 			r.Get("/signin", openid.SingIn)
+			r.Get("/refresh-status", openid.RefreshStatus)
 			r.Post("/refresh", openid.Refresh)
 			r.Get("/logout", openid.Logout)
 		})
