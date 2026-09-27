@@ -137,7 +137,7 @@ func SingIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write([]byte("Login succesfully, you may now close this window and refresh yt-dlp-webui."))
+	http.Redirect(w, r, config.Instance().Server.BaseURL+"/", http.StatusSeeOther)
 }
 
 func Refresh(w http.ResponseWriter, r *http.Request) {

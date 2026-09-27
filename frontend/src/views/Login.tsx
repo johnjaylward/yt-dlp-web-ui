@@ -82,7 +82,7 @@ export default function Login() {
     )()
   }
 
-  const loginWithOpenId = () => window.open(`${url}/auth/openid/login`)
+  const loginWithOpenId = () => window.location.assign(`${url}/auth/openid/login`)
 
   return (
     <LoginContainer>
