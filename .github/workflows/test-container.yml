@@ -2,7 +2,9 @@ name: Docker Image CI
 
 on:
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "server-v4" ]
+  push:
+    branches: [ "master", "server-v4" ]
 
 jobs:
 
@@ -12,5 +14,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Check yt-dlp allowlist against packaged binary
+      run: docker build . --file Dockerfile --tag yt-dlp-webui-ci:latest
+    - name: Capture packaged yt-dlp options
+      run: docker run --rm --entrypoint yt-dlp yt-dlp-webui-ci:latest --help > yt-dlp-help.txt
+    - name: Test allowlist against packaged yt-dlp
+      env:
+        YTDLP_HELP_PATH: yt-dlp-help.txt
+      run: go test ./server/internal/downloaders -run '^TestAllowedFlagsSupportedByYtDlp$'

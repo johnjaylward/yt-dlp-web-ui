@@ -33,6 +33,7 @@ var allowedFlags = map[string]bool{
 	"-F":                               true,
 	"--list-formats":                   true,
 	"--merge-output-format":            true,
+	"--no-mtime":                       true,
 	"-I":                               true, // video / playlist selection
 	"--playlist-items":                 true,
 	"--min-filesize":                   true,
@@ -48,6 +49,8 @@ var allowedFlags = map[string]bool{
 	"--age-limit":                      true,
 	"--max-downloads":                  true,
 	"--playlist-random":                true,
+	"--break-on-existing":              true,
+	"--download-archive":               true,
 	"-N":                               true, // download behaviour
 	"--concurrent-fragments":           true,
 	"-r":                               true,
@@ -74,6 +77,7 @@ var allowedFlags = map[string]bool{
 	"--sub-format":                     true,
 	"--sub-langs":                      true,
 	"--convert-subs":                   true,
+	"--cookies":                        true,
 	"--write-thumbnail":                true, // thumbs
 	"--write-all-thumbnails":           true,
 	"--convert-thumbnails":             true,
@@ -120,7 +124,8 @@ func argsSanitizer(params []string) ([]string, error) {
 			out = append(out, p)
 			continue
 		}
-		if !allowedFlags[p] {
+		flag := strings.SplitN(p, "=", 2)[0]
+		if !allowedFlags[flag] {
 			return nil, fmt.Errorf("param %s not allowed", p)
 		}
 		out = append(out, p)
