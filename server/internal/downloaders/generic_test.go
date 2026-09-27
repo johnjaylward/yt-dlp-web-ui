@@ -55,3 +55,17 @@ func TestRestoreFromLegacySnapshotFallsBackToMetadataURL(t *testing.T) {
 		t.Fatalf("restored URL = %q, want %q", d.GetUrl(), url)
 	}
 }
+
+func TestStartMarksRejectedArgumentsAsErrored(t *testing.T) {
+	d := NewGenericDownload("https://example.com/video", []string{"--not-allowed"}).(*GenericDownloader)
+
+	if err := d.Start(); err == nil {
+		t.Fatal("Start() returned nil for an unsupported argument")
+	}
+	if !d.IsCompleted() {
+		t.Fatal("failed download was not marked completed")
+	}
+	if d.progress.Status != internal.StatusErrored {
+		t.Fatalf("progress status = %d, want %d", d.progress.Status, internal.StatusErrored)
+	}
+}

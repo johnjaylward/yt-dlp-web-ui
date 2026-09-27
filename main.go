@@ -43,6 +43,7 @@ func main() {
 	v.SetDefault("paths.download_path", ".")
 	v.SetDefault("paths.downloader_path", "yt-dlp")
 	v.SetDefault("paths.local_database_path", ".")
+	v.SetDefault("paths.js_runtime_path", "")
 	v.SetDefault("logging.log_path", "yt-dlp-webui.log")
 	v.SetDefault("logging.enable_file_logging", false)
 	v.SetDefault("authentication.require_auth", false)

@@ -60,7 +60,18 @@ func NewGenericDownload(url string, params []string) Downloader {
 	return g
 }
 
-func (g *GenericDownloader) Start() error {
+func (g *GenericDownloader) Start() (startErr error) {
+	defer func() {
+		if g.progress.Status != internal.StatusCompleted {
+			if startErr != nil {
+				g.progress.Status = internal.StatusErrored
+			} else {
+				g.progress.Status = internal.StatusCompleted
+			}
+		}
+		g.Complete()
+	}()
+
 	whitelistedParams, err := argsSanitizer(g.Params)
 	if err != nil {
 		return err
@@ -134,26 +145,25 @@ func (g *GenericDownloader) Start() error {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		slog.Error("failed to get a stdout pipe", slog.Any("err", err))
-		panic(err)
+		return err
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		slog.Error("failed to get a stderr pipe", slog.Any("err", err))
-		panic(err)
+		return err
 	}
 
 	if err := cmd.Start(); err != nil {
 		slog.Error("failed to start yt-dlp process", slog.Any("err", err))
-		panic(err)
+		return err
 	}
 
 	g.proc = cmd.Process
+	g.SetProgress(internal.DownloadProgress{Status: internal.StatusDownloading})
 
 	defer func() {
 		stdout.Close()
-		g.Complete()
-		g.progress.Status = internal.StatusCompleted
 		cancel()
 	}()
 

@@ -85,7 +85,13 @@ func (m *MessageQueue) downloadWorker(workerId int) {
 				slog.String("url", p.GetUrl()),
 			)
 
-			p.Start()
+			if err := p.Start(); err != nil {
+				slog.Error("download process failed",
+					slog.String("id", p.GetId()),
+					slog.String("url", p.GetUrl()),
+					slog.Any("err", err),
+				)
+			}
 		}
 	}
 }
