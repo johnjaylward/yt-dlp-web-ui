@@ -3,10 +3,10 @@ package downloaders
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -61,9 +61,13 @@ func NewGenericDownload(url string, params []string) Downloader {
 }
 
 func (g *GenericDownloader) Start() error {
-	g.SetPending(true)
+	whitelistedParams, err := argsSanitizer(g.Params)
+	if err != nil {
+		return err
+	}
 
-	g.Params = argsSanitizer(g.Params)
+	g.Params = whitelistedParams
+	g.SetPending(true)
 
 	out := internal.DownloadOutput{
 		Path:     config.Instance().Paths.DownloadPath,
@@ -83,7 +87,7 @@ func (g *GenericDownloader) Start() error {
 	templateReplacer := strings.NewReplacer("\n", "", "\t", "", " ", "")
 
 	baseParams := []string{
-		strings.Split(g.URL, "?list")[0], //no playlist
+		strings.Split(g.URL, "?list")[0], // no playlist
 		"--newline",
 		"--no-colors",
 		"--no-playlist",
@@ -100,15 +104,27 @@ func (g *GenericDownloader) Start() error {
 
 	// if user asked to manually override the output path...
 	if !(slices.Contains(g.Params, "-P") || slices.Contains(g.Params, "--paths")) {
+		outputPath := filepath.Join(out.Path, out.Filename)
+
+		rel, err := filepath.Rel(config.Instance().Paths.DownloadPath, outputPath)
+		if err != nil {
+			return err
+		}
+		if strings.HasPrefix(rel, "..") {
+			return errors.New(ErrIsNotSubPath)
+		}
+
 		g.Params = append(g.Params, "-o")
-		g.Params = append(g.Params, fmt.Sprintf("%s/%s", out.Path, out.Filename))
+		g.Params = append(g.Params, outputPath)
 	}
 
 	params := append(baseParams, g.Params...)
 
 	slog.Info("requesting download", slog.String("url", g.URL), slog.Any("params", params))
 
-	cmd := exec.Command(config.Instance().Paths.DownloaderPath, params...)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	cmd := exec.CommandContext(ctx, config.Instance().Paths.DownloaderPath, params...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdout, err := cmd.StdoutPipe()
@@ -130,10 +146,10 @@ func (g *GenericDownloader) Start() error {
 
 	g.proc = cmd.Process
 
-	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
 		stdout.Close()
 		g.Complete()
+		g.progress.Status = internal.StatusCompleted
 		cancel()
 	}()
 
