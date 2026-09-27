@@ -1,82 +1,102 @@
-name: Docker
+name: Publish container images
+run-name: Publish container images (${{ github.ref_name }})
 on:
   release:
     types: [published]
   push:
-    branches: [ master ]
+    branches: [ master, server-v4 ]
   schedule:
     - cron : '0 1 * * 0'
 
 jobs:
-  publish:
+  check-publish-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - id: check
+        env:
+          DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+          DOCKER_HUB_PASSWORD: ${{ secrets.DOCKER_HUB_PASSWORD }}
+        run: |
+          if [[ -n "$DOCKER_HUB_USERNAME" && -n "$DOCKER_HUB_PASSWORD" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Docker Hub credentials are not configured; skipping the Docker Hub publish."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-publish:
+    needs: check-publish-secrets
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-      # This is used to complete the identity challenge
-      # with sigstore/fulcio when running outside of PRs.
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      # https://github.com/sigstore/cosign-installer
       - name: Install cosign
-        # v3.1.2
-        uses: sigstore/cosign-installer
-        with:
-          cosign-release: 'v1.13.6'
+        uses: sigstore/cosign-installer@v4.1.2
 
       - name: Set up QEMU for ARM emulation
-        # v2.2.0
-        uses: docker/setup-qemu-action
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: all
       - name: Set up Docker Buildx
-        # 2.10.0
-        uses: docker/setup-buildx-action
+        uses: docker/setup-buildx-action@v4
 
-      - name: Login to Docker Hub
-        # 2.2.0
-        uses: docker/login-action
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
       - name: Login to GHCR
-        # 2.2.0
-        uses: docker/login-action
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate Docker metadata
-        id: meta
-        # v4.6.0
-        uses: docker/metadata-action
+      - name: Login to Docker Hub
+        if: needs.check-publish-secrets.outputs.available == 'true'
+        uses: docker/login-action@v4
         with:
-          images: |
-           ghcr.io/${{ github.repository }}
-           docker.io/${{ secrets.DOCKER_HUB_USERNAME }}/yt-dlp-webui
-          tags: |
-            type=raw,value=v4
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
 
-      - name: Build and push Docker image
+      - name: Generate GHCR metadata
+        id: meta-ghcr
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=v4,enable=${{ github.ref == 'refs/heads/server-v4' }}
+            type=ref,event=tag
+
+      - name: Generate Docker Hub metadata
+        id: meta-dockerhub
+        if: needs.check-publish-secrets.outputs.available == 'true'
+        uses: docker/metadata-action@v6
+        with:
+          images: docker.io/${{ secrets.DOCKER_HUB_USERNAME }}/yt-dlp-webui
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=v4,enable=${{ github.ref == 'refs/heads/server-v4' }}
+            type=ref,event=tag
+
+      - name: Build and publish image
         id: build-and-push
-        # v4.2.1
-        uses: docker/build-push-action
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels}}
+          tags: |
+            ${{ steps.meta-ghcr.outputs.tags }}
+            ${{ steps.meta-dockerhub.outputs.tags }}
+          labels: ${{ steps.meta-ghcr.outputs.labels }}
 
-      - name: Sign the published Docker image
-        env:
-          COSIGN_EXPERIMENTAL: "true"
-        # This step uses the identity token to provision an ephemeral certificate
-        # against the sigstore community Fulcio instance.
-        run: |
-          cosign sign ghcr.io/${{ github.repository }}@${{ steps.build-and-push.outputs.digest }}
-          cosign sign docker.io/${{ secrets.DOCKER_HUB_USERNAME }}/yt-dlp-webui@${{ steps.build-and-push.outputs.digest }}
+      - name: Sign the GHCR image
+        run: cosign sign --yes ghcr.io/${{ github.repository }}@${{ steps.build-and-push.outputs.digest }}
+
+      - name: Sign the Docker Hub image
+        if: needs.check-publish-secrets.outputs.available == 'true'
+        run: cosign sign --yes docker.io/${{ secrets.DOCKER_HUB_USERNAME }}/yt-dlp-webui@${{ steps.build-and-push.outputs.digest }}
