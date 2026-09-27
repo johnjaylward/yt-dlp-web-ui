@@ -2,11 +2,15 @@ package metadata
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -14,9 +18,21 @@ import (
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
 )
 
+const metadataFetchTimeout = 2 * time.Minute
+
 func DefaultFetcher(url string) (*common.DownloadMetadata, error) {
-	cmd := exec.Command(config.Instance().Paths.DownloaderPath, url, "-J")
+	ctx, cancel := context.WithTimeout(context.Background(), metadataFetchTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, config.Instance().Paths.DownloaderPath, url, "-J")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -38,19 +54,30 @@ func DefaultFetcher(url string) (*common.DownloadMetadata, error) {
 	}
 
 	var bufferedStderr bytes.Buffer
+	stderrDone := make(chan struct{})
 
 	go func() {
+		defer close(stderrDone)
 		io.Copy(&bufferedStderr, stderr)
 	}()
 
 	slog.Info("retrieving metadata", slog.String("url", url))
 
-	if err := json.NewDecoder(stdout).Decode(&meta); err != nil {
-		return nil, err
-	}
+	decodeErr := json.NewDecoder(stdout).Decode(&meta)
+	waitErr := cmd.Wait()
+	<-stderrDone
 
-	if err := cmd.Wait(); err != nil {
-		return nil, errors.New(bufferedStderr.String())
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return nil, fmt.Errorf("metadata fetch timed out after %s", metadataFetchTimeout)
+	}
+	if waitErr != nil {
+		if stderr := strings.TrimSpace(bufferedStderr.String()); stderr != "" {
+			return nil, errors.New(stderr)
+		}
+		return nil, waitErr
+	}
+	if decodeErr != nil {
+		return nil, decodeErr
 	}
 
 	return &meta, nil
