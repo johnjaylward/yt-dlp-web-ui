@@ -32,6 +32,15 @@ func main() {
 	flag.StringVar(&configFile, "conf", "./config.yml", "Config file path")
 	flag.Parse()
 
+	backupConfig, err := config.MigrateV3ConfigFile(configFile)
+	if err != nil {
+		slog.Error("failed to migrate v3 config", "path", configFile, "error", err)
+		os.Exit(1)
+	}
+	if backupConfig != "" {
+		slog.Warn("converted v3 config to v4 format", "config", configFile, "original", backupConfig)
+	}
+
 	v := viper.New()
 	v.SetConfigFile(configFile)
 	v.SetConfigType("yaml")
@@ -67,7 +76,7 @@ func main() {
 	}
 
 	var appFS fs.FS
-	if fp := v.GetString("frontend_path"); fp != "" {
+	if fp := v.GetString("frontend.frontend_path"); fp != "" {
 		appFS = os.DirFS(fp)
 	} else {
 		sub, err := fs.Sub(frontend, "frontend/dist")
