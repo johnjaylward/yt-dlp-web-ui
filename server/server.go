@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/auth/session"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/filebrowser"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal/kv"
@@ -51,6 +52,7 @@ type serverConfig struct {
 	lm            *livestream.Monitor
 	taskRunner    task.TaskRunner
 	twitchMonitor *twitch.Monitor
+	revocations   *session.RevocationStore
 }
 
 // TODO: change scope
@@ -60,6 +62,10 @@ func Run(ctx context.Context, rc *RunConfig) error {
 	dbPath := filepath.Join(config.Instance().Paths.LocalDatabasePath, "bolt.db")
 
 	boltdb, err := bolt.Open(dbPath, 0600, nil)
+	if err != nil {
+		return err
+	}
+	revocations, err := session.NewRevocationStore(boltdb)
 	if err != nil {
 		return err
 	}
@@ -140,6 +146,7 @@ func Run(ctx context.Context, rc *RunConfig) error {
 		lm:            lm,
 		twitchMonitor: tm,
 		taskRunner:    cronTaskRunner,
+		revocations:   revocations,
 	}
 
 	srv := newServer(scfg)
@@ -178,6 +185,7 @@ func newServer(c serverConfig) *http.Server {
 	rpc.Register(service)
 
 	r := chi.NewRouter()
+	r.Use(middlewares.WithRevocationStore(c.revocations))
 	r.Use(middlewares.LimitRequestBody)
 
 	corsMiddleware := cors.New(cors.Options{
@@ -228,8 +236,9 @@ func newServer(c serverConfig) *http.Server {
 			r.Get("/login", openid.Login)
 			r.Get("/signin", openid.SingIn)
 			r.Get("/refresh-status", openid.RefreshStatus)
-			r.Post("/refresh", openid.Refresh)
+			r.Post("/refresh", openid.RefreshWithRevocationStore(c.revocations))
 			r.Get("/logout", openid.Logout)
+			r.Post("/backchannel-logout", openid.BackchannelLogout(c.revocations))
 		})
 	})
 

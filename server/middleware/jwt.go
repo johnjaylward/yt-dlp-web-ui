@@ -12,6 +12,16 @@ import (
 )
 
 type principalContextKey struct{}
+type revocationStoreContextKey struct{}
+
+func WithRevocationStore(store *session.RevocationStore) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), revocationStoreContextKey{}, store)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
 
 func PrincipalFromContext(ctx context.Context) (session.Principal, bool) {
 	principal, ok := ctx.Value(principalContextKey{}).(session.Principal)
@@ -59,6 +69,23 @@ func Authenticated(next http.Handler) http.Handler {
 			})
 			if fingerprintErr != nil || principal.Username != authConfig.Username ||
 				!hmac.Equal([]byte(fingerprint), []byte(claims.LocalAuthFingerprint)) {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		if principal.AuthSource == session.AuthSourceOIDC {
+			store, _ := r.Context().Value(revocationStoreContextKey{}).(*session.RevocationStore)
+			if store == nil {
+				http.Error(w, "OIDC session validation unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			revoked, err := store.IsRevoked(principal)
+			if err != nil {
+				http.Error(w, "OIDC session validation unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			if revoked {
+				session.ClearCookie(w, r)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}

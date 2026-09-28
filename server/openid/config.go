@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	oauth2Config oauth2.Config
-	verifier     *oidc.IDTokenVerifier
+	oauth2Config    oauth2.Config
+	verifier        *oidc.IDTokenVerifier
+	refreshVerifier *oidc.IDTokenVerifier
 )
 
 func Configure() {
@@ -36,5 +37,9 @@ func Configure() {
 
 	verifier = provider.Verifier(&oidc.Config{
 		ClientID: config.Instance().OpenId.ClientId,
+	})
+	refreshVerifier = provider.Verifier(&oidc.Config{
+		ClientID:        config.Instance().OpenId.ClientId,
+		SkipExpiryCheck: true,
 	})
 }

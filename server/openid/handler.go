@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"mime"
 	"net/http"
 	"slices"
 	"strings"
@@ -171,6 +173,7 @@ func principalFromIDToken(idToken *oidc.IDToken) (session.Principal, error) {
 		return session.Principal{}, err
 	}
 	username := ""
+	sessionID := ""
 	claimName := config.Instance().OpenId.UsernameClaim
 	if claimName == "" {
 		claimName = "preferred_username"
@@ -180,15 +183,22 @@ func principalFromIDToken(idToken *oidc.IDToken) (session.Principal, error) {
 			return session.Principal{}, errors.New("configured OIDC username claim is not a string")
 		}
 	}
+	if raw, ok := claims["sid"]; ok {
+		if err := json.Unmarshal(raw, &sessionID); err != nil {
+			return session.Principal{}, errors.New("OIDC session ID claim is not a string")
+		}
+	}
 	return session.NewOIDCPrincipal(
 		idToken.Issuer,
 		idToken.Subject,
+		sessionID,
 		username,
+		idToken.IssuedAt.Unix(),
 		slices.Contains(config.Instance().OpenId.AdminUsernames, username) && username != "",
 	)
 }
 
-func issueAppSessionFromIDToken(w http.ResponseWriter, r *http.Request, rawIDToken string) error {
+func issueAppSessionFromIDToken(w http.ResponseWriter, r *http.Request, rawIDToken string, store *session.RevocationStore) error {
 	idToken, err := verifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
 		return err
@@ -196,6 +206,13 @@ func issueAppSessionFromIDToken(w http.ResponseWriter, r *http.Request, rawIDTok
 	principal, err := principalFromIDToken(idToken)
 	if err != nil {
 		return err
+	}
+	revoked, err := store.IsRevoked(principal)
+	if err != nil {
+		return err
+	}
+	if revoked {
+		return errors.New("OIDC session was revoked")
 	}
 	token, expiresAt, err := session.Sign(principal)
 	if err != nil {
@@ -206,8 +223,22 @@ func issueAppSessionFromIDToken(w http.ResponseWriter, r *http.Request, rawIDTok
 }
 
 func Refresh(w http.ResponseWriter, r *http.Request) {
+	refresh(w, r, nil)
+}
+
+func RefreshWithRevocationStore(store *session.RevocationStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		refresh(w, r, store)
+	}
+}
+
+func refresh(w http.ResponseWriter, r *http.Request, store *session.RevocationStore) {
 	if !config.Instance().OpenId.UseOpenId {
 		http.NotFound(w, r)
+		return
+	}
+	if store == nil || refreshVerifier == nil {
+		http.Error(w, "OIDC session validation unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -216,24 +247,45 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing OpenID refresh token", http.StatusUnauthorized)
 		return
 	}
-	if idCookie, err := r.Cookie("oid-token"); err == nil {
-		if idToken, verifyErr := verifier.Verify(r.Context(), idCookie.Value); verifyErr == nil && !tokenExpiresSoon(idCookie.Value) {
-			if appSessionExpiresSoon(r) {
-				principal, err := principalFromIDToken(idToken)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusBadGateway)
-					return
-				}
-				appToken, expiresAt, err := session.Sign(principal)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				session.SetCookie(w, r, appToken, expiresAt)
+	idCookie, err := r.Cookie("oid-token")
+	if err != nil || idCookie.Value == "" {
+		clearOIDCSession(w, r)
+		http.Error(w, "missing OpenID ID token", http.StatusUnauthorized)
+		return
+	}
+	oldIDToken, err := refreshVerifier.Verify(r.Context(), idCookie.Value)
+	if err != nil {
+		clearOIDCSession(w, r)
+		http.Error(w, "invalid OpenID session", http.StatusUnauthorized)
+		return
+	}
+	oldPrincipal, err := principalFromIDToken(oldIDToken)
+	if err != nil {
+		clearOIDCSession(w, r)
+		http.Error(w, "invalid OpenID session", http.StatusUnauthorized)
+		return
+	}
+	revoked, err := store.IsRevoked(oldPrincipal)
+	if err != nil {
+		http.Error(w, "OIDC session validation unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if revoked {
+		clearOIDCSession(w, r)
+		http.Error(w, "OIDC session was revoked", http.StatusUnauthorized)
+		return
+	}
+	if !tokenExpiresSoon(idCookie.Value) {
+		if appSessionExpiresSoon(r) {
+			appToken, expiresAt, err := session.Sign(oldPrincipal)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
-			w.WriteHeader(http.StatusNoContent)
-			return
+			session.SetCookie(w, r, appToken, expiresAt)
 		}
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
 
 	ts := oauth2Config.TokenSource(r.Context(), &oauth2.Token{RefreshToken: refreshCookie.Value})
@@ -249,12 +301,40 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "refresh response did not contain an ID token", http.StatusBadGateway)
 		return
 	}
-	if _, err := verifier.Verify(r.Context(), idToken); err != nil {
+	newIDToken, err := verifier.Verify(r.Context(), idToken)
+	if err != nil {
 		http.Error(w, "refreshed ID token is invalid: "+err.Error(), http.StatusBadGateway)
 		return
 	}
+	newPrincipal, err := principalFromIDToken(newIDToken)
+	if err != nil {
+		http.Error(w, "refreshed ID token is invalid", http.StatusBadGateway)
+		return
+	}
+	// Recheck the old assertion after the network exchange in case a logout
+	// event arrived while the refresh token was being redeemed.
+	revoked, err = store.IsRevoked(oldPrincipal)
+	if err != nil {
+		http.Error(w, "OIDC session validation unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if revoked {
+		clearOIDCSession(w, r)
+		http.Error(w, "OIDC session was revoked", http.StatusUnauthorized)
+		return
+	}
+	revoked, err = store.IsRevoked(newPrincipal)
+	if err != nil {
+		http.Error(w, "OIDC session validation unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if revoked {
+		clearOIDCSession(w, r)
+		http.Error(w, "OIDC session was revoked", http.StatusUnauthorized)
+		return
+	}
 	setOIDCookie(w, r, "oid-token", idToken)
-	if err := issueAppSessionFromIDToken(w, r, idToken); err != nil {
+	if err := issueAppSessionFromIDToken(w, r, idToken, store); err != nil {
 		http.Error(w, "refreshed ID token could not establish a session: "+err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -262,6 +342,12 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 		setOIDCookie(w, r, "oid-refresh-token", token.RefreshToken)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func clearOIDCSession(w http.ResponseWriter, r *http.Request) {
+	session.ClearCookie(w, r)
+	expireOIDCookie(w, r, "oid-token")
+	expireOIDCookie(w, r, "oid-refresh-token")
 }
 
 func appSessionExpiresSoon(r *http.Request) bool {
@@ -342,4 +428,97 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		Secure:   r.TLS != nil,
 		MaxAge:   -1,
 	})
+}
+
+const backchannelLogoutEvent = "http://schemas.openid.net/event/backchannel-logout"
+
+func BackchannelLogout(store *session.RevocationStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !config.Instance().OpenId.UseOpenId {
+			http.NotFound(w, r)
+			return
+		}
+		if verifier == nil || store == nil {
+			http.Error(w, "OIDC logout is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mediaType != "application/x-www-form-urlencoded" {
+			http.Error(w, "expected application/x-www-form-urlencoded", http.StatusBadRequest)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid logout request", http.StatusBadRequest)
+			return
+		}
+		tokens := r.PostForm["logout_token"]
+		if len(tokens) != 1 || tokens[0] == "" {
+			http.Error(w, "exactly one logout_token is required", http.StatusBadRequest)
+			return
+		}
+
+		idToken, err := verifier.Verify(r.Context(), tokens[0])
+		if err != nil {
+			http.Error(w, "invalid logout token", http.StatusBadRequest)
+			return
+		}
+		var claims struct {
+			Subject         string                     `json:"sub"`
+			SessionID       string                     `json:"sid"`
+			TokenID         string                     `json:"jti"`
+			IssuedAt        int64                      `json:"iat"`
+			ExpiresAt       int64                      `json:"exp"`
+			Nonce           string                     `json:"nonce"`
+			AuthorizedParty string                     `json:"azp"`
+			Events          map[string]json.RawMessage `json:"events"`
+		}
+		if err := idToken.Claims(&claims); err != nil {
+			http.Error(w, "invalid logout token claims", http.StatusBadRequest)
+			return
+		}
+		if claims.TokenID == "" || len(claims.TokenID) > 1024 || claims.IssuedAt <= 0 || claims.ExpiresAt <= claims.IssuedAt ||
+			(claims.Subject == "" && claims.SessionID == "") || claims.Nonce != "" ||
+			len(claims.Subject) > 1024 || len(claims.SessionID) > 1024 ||
+			claims.IssuedAt > time.Now().Add(5*time.Minute).Unix() {
+			http.Error(w, "logout token is missing required claims or has invalid claims", http.StatusBadRequest)
+			return
+		}
+		if claims.AuthorizedParty != "" && claims.AuthorizedParty != config.Instance().OpenId.ClientId {
+			http.Error(w, "logout token authorized party does not match", http.StatusBadRequest)
+			return
+		}
+		if len(idToken.Audience) > 1 && claims.AuthorizedParty != config.Instance().OpenId.ClientId {
+			http.Error(w, "logout token must identify this client as the authorized party", http.StatusBadRequest)
+			return
+		}
+		event, ok := claims.Events[backchannelLogoutEvent]
+		if !ok {
+			http.Error(w, "logout token is missing the back-channel logout event", http.StatusBadRequest)
+			return
+		}
+		var eventPayload map[string]json.RawMessage
+		if err := json.Unmarshal(event, &eventPayload); err != nil || eventPayload == nil {
+			http.Error(w, "invalid back-channel logout event", http.StatusBadRequest)
+			return
+		}
+
+		err = store.Apply(session.OIDCLogout{
+			Issuer:    idToken.Issuer,
+			Subject:   claims.Subject,
+			SessionID: claims.SessionID,
+			TokenID:   claims.TokenID,
+			IssuedAt:  time.Unix(claims.IssuedAt, 0),
+			ExpiresAt: time.Unix(claims.ExpiresAt, 0),
+		})
+		if errors.Is(err, session.ErrLogoutReplay) {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if err != nil {
+			slog.Error("failed to apply OIDC back-channel logout", "error", err)
+			http.Error(w, "failed to apply logout", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
 }

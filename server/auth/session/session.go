@@ -29,12 +29,14 @@ const (
 // Principal is the stable identity and authorization context for an app session.
 // Username is descriptive; ID is the value intended for future owner scoping.
 type Principal struct {
-	ID         string     `json:"principal_id"`
-	Username   string     `json:"username"`
-	AuthSource AuthSource `json:"auth_source"`
-	IDPIssuer  string     `json:"idp_issuer,omitempty"`
-	IDPSubject string     `json:"idp_subject,omitempty"`
-	IsAdmin    bool       `json:"is_admin"`
+	ID           string     `json:"principal_id"`
+	Username     string     `json:"username"`
+	AuthSource   AuthSource `json:"auth_source"`
+	IDPIssuer    string     `json:"idp_issuer,omitempty"`
+	IDPSubject   string     `json:"idp_subject,omitempty"`
+	IDPSessionID string     `json:"idp_session_id,omitempty"`
+	IDPTokenIAT  int64      `json:"idp_token_iat,omitempty"`
+	IsAdmin      bool       `json:"is_admin"`
 }
 
 type Claims struct {
@@ -62,18 +64,23 @@ func NewLocalPrincipal(username string, isAdmin bool) (Principal, error) {
 	}, nil
 }
 
-func NewOIDCPrincipal(issuer, subject, username string, isAdmin bool) (Principal, error) {
+func NewOIDCPrincipal(issuer, subject, sessionID, username string, idTokenIssuedAt int64, isAdmin bool) (Principal, error) {
 	if issuer == "" || subject == "" {
 		return Principal{}, errors.New("OIDC issuer and subject are required")
 	}
+	if idTokenIssuedAt <= 0 {
+		return Principal{}, errors.New("OIDC ID token issued-at time is required")
+	}
 	identity := sha256.Sum256([]byte(issuer + "\x00" + subject))
 	return Principal{
-		ID:         "oidc:" + hex.EncodeToString(identity[:]),
-		Username:   username,
-		AuthSource: AuthSourceOIDC,
-		IDPIssuer:  issuer,
-		IDPSubject: subject,
-		IsAdmin:    isAdmin,
+		ID:           "oidc:" + hex.EncodeToString(identity[:]),
+		Username:     username,
+		AuthSource:   AuthSourceOIDC,
+		IDPIssuer:    issuer,
+		IDPSubject:   subject,
+		IDPSessionID: sessionID,
+		IDPTokenIAT:  idTokenIssuedAt,
+		IsAdmin:      isAdmin,
 	}, nil
 }
 
@@ -172,7 +179,7 @@ func validatePrincipal(principal Principal) error {
 		if principal.IDPIssuer == "" || principal.IDPSubject == "" {
 			return errors.New("OIDC session is missing its verified identity")
 		}
-		expected, err := NewOIDCPrincipal(principal.IDPIssuer, principal.IDPSubject, principal.Username, principal.IsAdmin)
+		expected, err := NewOIDCPrincipal(principal.IDPIssuer, principal.IDPSubject, principal.IDPSessionID, principal.Username, principal.IDPTokenIAT, principal.IsAdmin)
 		if err != nil || principal.ID != expected.ID {
 			return errors.New("invalid OIDC session principal")
 		}
