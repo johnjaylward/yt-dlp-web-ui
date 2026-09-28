@@ -2,9 +2,7 @@ package rest
 
 import (
 	"github.com/go-chi/chi/v5"
-	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
 	middlewares "github.com/marcopiovanello/yt-dlp-web-ui/v4/server/middleware"
-	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/openid"
 )
 
 func Container(args *ContainerArgs) *Handler {
@@ -19,12 +17,7 @@ func ApplyRouter(args *ContainerArgs) func(chi.Router) {
 	h := Container(args)
 
 	return func(r chi.Router) {
-		if config.Instance().Authentication.RequireAuth {
-			r.Use(middlewares.Authenticated)
-		}
-		if config.Instance().OpenId.UseOpenId {
-			r.Use(openid.Middleware)
-		}
+		r.Use(middlewares.ApplyAuthenticationByConfig)
 		r.Post("/exec", h.Exec())
 		r.Post("/execPlaylist", h.ExecPlaylist())
 		r.Post("/execLivestream", h.ExecLivestream())

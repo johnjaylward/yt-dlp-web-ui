@@ -56,6 +56,8 @@ func main() {
 	v.SetDefault("logging.log_path", "yt-dlp-webui.log")
 	v.SetDefault("logging.enable_file_logging", false)
 	v.SetDefault("authentication.require_auth", false)
+	v.SetDefault("openid.username_claim", "preferred_username")
+	v.SetDefault("openid.admin_usernames", []string{})
 
 	// Env binding
 	v.SetEnvPrefix("APP")
@@ -69,6 +71,15 @@ func main() {
 	cfg := config.Instance()
 	if err := v.Unmarshal(&cfg); err != nil {
 		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+	if cfg.Authentication.RequireAuth && cfg.OpenId.UseOpenId && cfg.Authentication.IsAdmin == nil {
+		slog.Error("authentication.is_admin must be explicitly set when local and OIDC authentication are both enabled")
+		os.Exit(1)
+	}
+	if (cfg.Authentication.RequireAuth || cfg.OpenId.UseOpenId) && os.Getenv("JWT_SECRET") == "" {
+		slog.Error("JWT_SECRET must be set when authentication is enabled")
+		os.Exit(1)
 	}
 
 	if cfg.Server.QueueSize <= 0 || runtime.NumCPU() <= 2 {

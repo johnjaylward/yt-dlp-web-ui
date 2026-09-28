@@ -113,6 +113,9 @@ docker run -d \
 services:
   yt-dlp-webui:
     image: marcobaobao/yt-dlp-webui
+    environment:
+      # Required only when local authentication or OpenID authentication is enabled.
+      JWT_SECRET: ${JWT_SECRET:-}
     ports:
       - 3033:3033
     volumes:

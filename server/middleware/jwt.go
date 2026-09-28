@@ -1,57 +1,48 @@
 package middlewares
 
 import (
-	"errors"
-	"fmt"
+	"context"
 	"net/http"
-	"os"
-	"time"
+	"strings"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/auth/session"
 )
 
-func validateToken(tokenValue string) error {
-	token, err := jwt.Parse(tokenValue, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return []byte(os.Getenv("JWT_SECRET")), nil
-	})
-	if err != nil {
-		return err
-	}
+type principalContextKey struct{}
 
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		expiresAt, err := time.Parse(time.RFC3339, claims["expiresAt"].(string))
-		if err != nil {
-			return err
-		}
-
-		if time.Now().After(expiresAt) {
-			return errors.New("token expired")
-		}
-	} else {
-		return errors.New("invalid token")
-	}
-
-	return nil
+func PrincipalFromContext(ctx context.Context) (session.Principal, bool) {
+	principal, ok := ctx.Value(principalContextKey{}).(session.Principal)
+	return principal, ok
 }
 
-// Authentication does NOT use http-Only cookies since there's not risk for XSS
-// By exposing the server through https it's completely safe to use httpheaders
+func sessionTokenFromRequest(r *http.Request) string {
+	if cookie, err := r.Cookie(session.CookieName); err == nil && cookie.Value != "" {
+		return cookie.Value
+	}
+	if token := r.Header.Get("X-Authentication"); token != "" {
+		return token
+	}
+	if parts := strings.Fields(r.Header.Get("Authorization")); len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+		return parts[1]
+	}
+	if token := r.URL.Query().Get("token"); token != "" && token != "null" {
+		return token
+	}
+	return ""
+}
 
+// Authenticated validates the application's session JWT and adds its verified
+// principal to the request context. Local and OIDC sessions use this same path.
 func Authenticated(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("X-Authentication")
-		if token == "" {
-			token = r.URL.Query().Get("token")
-		}
-
-		if err := validateToken(token); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		claims, err := session.Parse(sessionTokenFromRequest(r))
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		principal := claims.Principal
+		ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

@@ -3,6 +3,8 @@ package openid
 import (
 	"net/http"
 	"strings"
+
+	middlewares "github.com/marcopiovanello/yt-dlp-web-ui/v4/server/middleware"
 )
 
 func tokenFromRequest(r *http.Request) string {
@@ -18,18 +20,5 @@ func tokenFromRequest(r *http.Request) string {
 }
 
 func Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := tokenFromRequest(r)
-		if token == "" {
-			http.Error(w, "missing OpenID token", http.StatusUnauthorized)
-			return
-		}
-
-		if _, err := verifier.Verify(r.Context(), token); err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
+	return middlewares.Authenticated(next)
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/google/uuid"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/auth/session"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
 	"golang.org/x/oauth2"
 )
@@ -20,11 +21,16 @@ import (
 type OAuth2SuccessResponse struct {
 	OAuth2Token   *oauth2.Token
 	IDTokenClaims *json.RawMessage
+	Principal     session.Principal
 }
 
 // var cookieMaxAge = int(time.Hour * 24 * 30) XXX: overflows on 32 bit architectures.
 
 func Login(w http.ResponseWriter, r *http.Request) {
+	if !config.Instance().OpenId.UseOpenId {
+		http.NotFound(w, r)
+		return
+	}
 	state := uuid.NewString()
 
 	nonceBytes := make([]byte, 16)
@@ -110,11 +116,15 @@ func doAuthentification(r *http.Request, setCookieCallback func(t *oauth2.Token)
 	oauth2Token.AccessToken = "*REDACTED*"
 
 	res := OAuth2SuccessResponse{
-		oauth2Token,
-		&json.RawMessage{},
+		OAuth2Token:   oauth2Token,
+		IDTokenClaims: &json.RawMessage{},
 	}
 
 	if err := idToken.Claims(&res.IDTokenClaims); err != nil {
+		return nil, err
+	}
+	res.Principal, err = principalFromIDToken(idToken)
+	if err != nil {
 		return nil, err
 	}
 
@@ -122,7 +132,11 @@ func doAuthentification(r *http.Request, setCookieCallback func(t *oauth2.Token)
 }
 
 func SingIn(w http.ResponseWriter, r *http.Request) {
-	_, err := doAuthentification(r, func(t *oauth2.Token) {
+	if !config.Instance().OpenId.UseOpenId {
+		http.NotFound(w, r)
+		return
+	}
+	success, err := doAuthentification(r, func(t *oauth2.Token) {
 		idToken, _ := t.Extra("id_token").(string)
 
 		setOIDCookie(w, r, "oid-token", idToken)
@@ -136,8 +150,54 @@ func SingIn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	appToken, expiresAt, err := session.Sign(success.Principal)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	session.SetCookie(w, r, appToken, expiresAt)
 
 	http.Redirect(w, r, config.Instance().Server.BaseURL+"/", http.StatusSeeOther)
+}
+
+func principalFromIDToken(idToken *oidc.IDToken) (session.Principal, error) {
+	var claims map[string]json.RawMessage
+	if err := idToken.Claims(&claims); err != nil {
+		return session.Principal{}, err
+	}
+	username := ""
+	claimName := config.Instance().OpenId.UsernameClaim
+	if claimName == "" {
+		claimName = "preferred_username"
+	}
+	if raw, ok := claims[claimName]; ok {
+		if err := json.Unmarshal(raw, &username); err != nil {
+			return session.Principal{}, errors.New("configured OIDC username claim is not a string")
+		}
+	}
+	return session.NewOIDCPrincipal(
+		idToken.Issuer,
+		idToken.Subject,
+		username,
+		slices.Contains(config.Instance().OpenId.AdminUsernames, username) && username != "",
+	)
+}
+
+func issueAppSessionFromIDToken(w http.ResponseWriter, r *http.Request, rawIDToken string) error {
+	idToken, err := verifier.Verify(r.Context(), rawIDToken)
+	if err != nil {
+		return err
+	}
+	principal, err := principalFromIDToken(idToken)
+	if err != nil {
+		return err
+	}
+	token, expiresAt, err := session.Sign(principal)
+	if err != nil {
+		return err
+	}
+	session.SetCookie(w, r, token, expiresAt)
+	return nil
 }
 
 func Refresh(w http.ResponseWriter, r *http.Request) {
@@ -151,9 +211,24 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing OpenID refresh token", http.StatusUnauthorized)
 		return
 	}
-	if idCookie, err := r.Cookie("oid-token"); err == nil && !tokenExpiresSoon(idCookie.Value) {
-		w.WriteHeader(http.StatusNoContent)
-		return
+	if idCookie, err := r.Cookie("oid-token"); err == nil {
+		if idToken, verifyErr := verifier.Verify(r.Context(), idCookie.Value); verifyErr == nil && !tokenExpiresSoon(idCookie.Value) {
+			if appSessionExpiresSoon(r) {
+				principal, err := principalFromIDToken(idToken)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadGateway)
+					return
+				}
+				appToken, expiresAt, err := session.Sign(principal)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				session.SetCookie(w, r, appToken, expiresAt)
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 	}
 
 	ts := oauth2Config.TokenSource(r.Context(), &oauth2.Token{RefreshToken: refreshCookie.Value})
@@ -174,10 +249,26 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setOIDCookie(w, r, "oid-token", idToken)
+	if err := issueAppSessionFromIDToken(w, r, idToken); err != nil {
+		http.Error(w, "refreshed ID token could not establish a session: "+err.Error(), http.StatusBadGateway)
+		return
+	}
 	if token.RefreshToken != "" {
 		setOIDCookie(w, r, "oid-refresh-token", token.RefreshToken)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func appSessionExpiresSoon(r *http.Request) bool {
+	cookie, err := r.Cookie(session.CookieName)
+	if err != nil || cookie.Value == "" {
+		return true
+	}
+	claims, err := session.Parse(cookie.Value)
+	if err != nil || claims.ExpiresAt == nil {
+		return true
+	}
+	return time.Until(claims.ExpiresAt.Time) <= time.Minute
 }
 
 func RefreshStatus(w http.ResponseWriter, r *http.Request) {
@@ -218,6 +309,7 @@ func tokenExpiresSoon(token string) bool {
 }
 
 func Logout(w http.ResponseWriter, r *http.Request) {
+	session.ClearCookie(w, r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oid-token",
 		HttpOnly: true,

@@ -41,6 +41,7 @@ type AuthConfig struct {
 	RequireAuth  bool   `mapstructure:"require_auth"`
 	Username     string `mapstructure:"username"`
 	PasswordHash string `mapstructure:"password_hash"`
+	IsAdmin      *bool  `mapstructure:"is_admin"`
 }
 
 type OpenIdConfig struct {
@@ -50,6 +51,8 @@ type OpenIdConfig struct {
 	ClientSecret   string   `mapstructure:"client_secret"`
 	RedirectURL    string   `mapstructure:"redirect_url"`
 	EmailWhitelist []string `mapstructure:"email_whitelist"`
+	UsernameClaim  string   `mapstructure:"username_claim"`
+	AdminUsernames []string `mapstructure:"admin_usernames"`
 }
 
 type FrontendConfig struct {
@@ -72,6 +75,7 @@ func Instance() *Config {
 		instanceOnce.Do(func() {
 			instance = &Config{}
 			instance.Twitch.CheckInterval = time.Minute * 5
+			instance.OpenId.UsernameClaim = "preferred_username"
 		})
 	}
 	return instance
