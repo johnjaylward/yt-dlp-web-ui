@@ -11,6 +11,7 @@ import {
   SpeedDialIcon
 } from '@mui/material'
 import { useAtom, useAtomValue } from 'jotai'
+import { useOutletContext } from 'react-router-dom'
 import { listViewState, serverURL } from '../atoms/settings'
 import { useI18n } from '../hooks/useI18n'
 import { useRPC } from '../hooks/useRPC'
@@ -21,6 +22,7 @@ type Props = {
 }
 
 const HomeSpeedDial: React.FC<Props> = ({ onDownloadOpen, onEditorOpen }) => {
+  const { isAdmin } = useOutletContext<{ isAdmin: boolean }>()
   const serverAddr = useAtomValue(serverURL)
   const [listView, setListView] = useAtom(listViewState)
 
@@ -53,11 +55,11 @@ const HomeSpeedDial: React.FC<Props> = ({ onDownloadOpen, onEditorOpen }) => {
         tooltipTitle={i18n.t('abortAllButton')}
         onClick={() => client.killAll()}
       />
-      <SpeedDialAction
+      {isAdmin && <SpeedDialAction
         icon={<BuildCircleIcon />}
         tooltipTitle={i18n.t('templatesEditor')}
         onClick={onEditorOpen}
-      />
+      />}
       <SpeedDialAction
         icon={<AddCircleIcon />}
         tooltipTitle={i18n.t('newDownloadButton')}

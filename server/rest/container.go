@@ -26,9 +26,9 @@ func ApplyRouter(args *ContainerArgs) func(chi.Router) {
 		r.With(middlewares.AdminOnly).Get("/cookies", h.GetCookies())
 		r.With(middlewares.AdminOnly).Post("/cookies", h.SetCookies())
 		r.With(middlewares.AdminOnly).Delete("/cookies", h.DeleteCookies())
-		r.Post("/template", h.AddTemplate())
-		r.Patch("/template", h.UpdateTemplate())
 		r.Get("/template/all", h.GetTemplates())
-		r.Delete("/template/{id}", h.DeleteTemplate())
+		r.With(middlewares.AdminOnly).Post("/template", h.AddTemplate())
+		r.With(middlewares.AdminOnly).Patch("/template", h.UpdateTemplate())
+		r.With(middlewares.AdminOnly).Delete("/template/{id}", h.DeleteTemplate())
 	}
 }
