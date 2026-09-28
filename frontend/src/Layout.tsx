@@ -20,7 +20,7 @@ import Typography from '@mui/material/Typography'
 import { grey } from '@mui/material/colors'
 import { useAtomValue } from 'jotai'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, Outlet } from 'react-router-dom'
+import { Link, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { serverURL, settingsState } from './atoms/settings'
 import AppBar from './components/AppBar'
 import Drawer from './components/Drawer'
@@ -35,9 +35,27 @@ import { getAccentValue } from './utils'
 
 export default function Layout() {
   const [open, setOpen] = useState(false)
+  const [isAdmin, setIsAdmin] = useState<boolean | undefined>(undefined)
 
   const settings = useAtomValue(settingsState)
   const url = useAtomValue(serverURL)
+  const location = useLocation()
+
+  useEffect(() => {
+    let active = true
+    const token = localStorage.getItem('token')
+    void fetch(`${url}/auth/session`, {
+      credentials: 'include',
+      headers: token ? { 'X-Authentication': token } : undefined,
+    }).then(async response => {
+      if (!response.ok) throw new Error('session unavailable')
+      const session: { authEnabled: boolean, authenticated: boolean, principal?: { is_admin: boolean } } = await response.json()
+      if (active) setIsAdmin(!session.authEnabled || Boolean(session.principal?.is_admin))
+    }).catch(() => {
+      if (active) setIsAdmin(false)
+    })
+    return () => { active = false }
+  }, [url])
 
   useEffect(() => {
     // Internal-password sessions use a bearer token in localStorage.
@@ -227,7 +245,7 @@ export default function Layout() {
                 <ListItemText primary={i18n.t('archiveButtonLabel')} />
               </ListItemButton>
             </Link>
-            <Link to={'/log'} style={
+            {isAdmin && <Link to={'/log'} style={
               {
                 textDecoration: 'none',
                 color: mode === 'dark' ? '#ffffff' : '#000000DE'
@@ -239,8 +257,8 @@ export default function Layout() {
                 </ListItemIcon>
                 <ListItemText primary={i18n.t('logsTitle')} />
               </ListItemButton>
-            </Link>
-            <Link to={'/settings'} style={
+            </Link>}
+            {isAdmin && <Link to={'/settings'} style={
               {
                 textDecoration: 'none',
                 color: mode === 'dark' ? '#ffffff' : '#000000DE'
@@ -252,7 +270,7 @@ export default function Layout() {
                 </ListItemIcon>
                 <ListItemText primary={i18n.t('settingsButtonLabel')} />
               </ListItemButton>
-            </Link>
+            </Link>}
             <ThemeToggler />
             <Logout />
           </List>
@@ -266,7 +284,11 @@ export default function Layout() {
           }}
         >
           <Toolbar />
-          <Outlet />
+          {(location.pathname === '/settings' || location.pathname === '/log') && isAdmin === undefined
+            ? null
+            : (location.pathname === '/settings' || location.pathname === '/log') && !isAdmin
+              ? <Navigate to="/" replace />
+              : <Outlet />}
         </Box>
       </Box>
       <Footer />

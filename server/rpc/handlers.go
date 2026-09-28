@@ -1,10 +1,14 @@
 package rpc
 
 import (
+	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
+	middlewares "github.com/marcopiovanello/yt-dlp-web-ui/v4/server/middleware"
 )
 
 var upgrader = websocket.Upgrader{
@@ -32,7 +36,16 @@ func WebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		res := newRequest(reader).Call()
+		request, err := io.ReadAll(reader)
+		if err != nil {
+			break
+		}
+		var res io.Reader
+		if adminRPCRequest(request) && !isAdmin(r) {
+			res = adminRequiredResponse(request)
+		} else {
+			res = newRequest(bytes.NewReader(request)).Call()
+		}
 
 		writer, err := c.NextWriter(mtype)
 		if err != nil {
@@ -48,11 +61,56 @@ func WebSocket(w http.ResponseWriter, r *http.Request) {
 func Post(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	res := newRequest(r.Body).Call()
-	_, err := io.Copy(w, res)
+	request, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var res io.Reader
+	if adminRPCRequest(request) && !isAdmin(r) {
+		res = adminRequiredResponse(request)
+	} else {
+		res = newRequest(bytes.NewReader(request)).Call()
+	}
+	_, err = io.Copy(w, res)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+}
+
+func adminRPCRequest(request []byte) bool {
+	if !config.Instance().Authentication.RequireAuth && !config.Instance().OpenId.UseOpenId {
+		return false
+	}
+	var call struct {
+		Method string `json:"method"`
+	}
+	return json.Unmarshal(request, &call) == nil && call.Method == "Service.UpdateExecutable"
+}
+
+func isAdmin(r *http.Request) bool {
+	principal, ok := middlewares.PrincipalFromContext(r.Context())
+	return ok && principal.IsAdmin
+}
+
+func adminRequiredResponse(request []byte) io.Reader {
+	var call struct {
+		ID json.RawMessage `json:"id"`
+	}
+	_ = json.Unmarshal(request, &call)
+	if len(call.ID) == 0 {
+		call.ID = json.RawMessage("null")
+	}
+	response, _ := json.Marshal(struct {
+		Error  string          `json:"error"`
+		Result json.RawMessage `json:"result"`
+		ID     json.RawMessage `json:"id"`
+	}{
+		Error:  "administrator access required",
+		Result: json.RawMessage("null"),
+		ID:     call.ID,
+	})
+	return bytes.NewReader(response)
 }

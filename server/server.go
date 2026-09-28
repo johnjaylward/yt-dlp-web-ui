@@ -220,6 +220,7 @@ func newServer(c serverConfig) *http.Server {
 	r.Route("/auth", func(r chi.Router) {
 		r.Post("/login", user.Login)
 		r.Get("/logout", user.Logout)
+		r.With(middlewares.ApplyAuthenticationByConfig).Get("/session", user.Session)
 
 		r.Route("/openid", func(r chi.Router) {
 			r.Get("/login", openid.Login)

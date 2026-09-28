@@ -2,10 +2,12 @@ package middlewares
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/auth/session"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
 )
 
 type principalContextKey struct{}
@@ -42,7 +44,35 @@ func Authenticated(next http.Handler) http.Handler {
 		}
 
 		principal := claims.Principal
+		user := principal.Username
+		if user == "" {
+			user = principal.ID
+		}
+		slog.Info("authenticated request",
+			slog.String("user", user),
+			slog.String("principal_id", principal.ID),
+			slog.String("auth_source", string(principal.AuthSource)),
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+		)
 		ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// AdminOnly protects administrative endpoints when authentication is enabled.
+// Unauthenticated installations retain their configured open-access behavior.
+func AdminOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !config.Instance().Authentication.RequireAuth && !config.Instance().OpenId.UseOpenId {
+			next.ServeHTTP(w, r)
+			return
+		}
+		principal, ok := PrincipalFromContext(r.Context())
+		if !ok || !principal.IsAdmin {
+			http.Error(w, "administrator access required", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }

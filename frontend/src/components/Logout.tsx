@@ -13,6 +13,7 @@ export default function Logout() {
     localStorage.removeItem('token')
     await fetch(`${url}/auth/openid/logout`, { credentials: 'include' }).catch(() => undefined)
     navigate('/login')
+    window.location.reload()
   }
 
   const { i18n } = useI18n()

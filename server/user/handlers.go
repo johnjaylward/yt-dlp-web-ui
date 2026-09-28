@@ -6,10 +6,34 @@ import (
 
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/auth/session"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
+	middlewares "github.com/marcopiovanello/yt-dlp-web-ui/v4/server/middleware"
 	"golang.org/x/crypto/bcrypt"
 )
 
 const TOKEN_COOKIE_NAME = session.CookieName
+
+func Session(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	principal, authenticated := middlewares.PrincipalFromContext(r.Context())
+	if err := json.NewEncoder(w).Encode(struct {
+		AuthEnabled   bool               `json:"authEnabled"`
+		Authenticated bool               `json:"authenticated"`
+		Principal     *session.Principal `json:"principal,omitempty"`
+	}{
+		AuthEnabled:   config.Instance().Authentication.RequireAuth || config.Instance().OpenId.UseOpenId,
+		Authenticated: authenticated,
+		Principal:     principalPointer(principal, authenticated),
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func principalPointer(principal session.Principal, ok bool) *session.Principal {
+	if !ok {
+		return nil
+	}
+	return &principal
+}
 
 type LoginRequest struct {
 	Username string `json:"username"`

@@ -16,7 +16,7 @@ const LogTerminal: React.FC = () => {
   const { i18n } = useI18n()
 
   const eventSource = useMemo(
-    () => new EventSource(`${serverAddr}/log/sse?token=${token}`),
+    () => new EventSource(`${serverAddr}/log/sse?token=${token}`, { withCredentials: true }),
     [serverAddr]
   )
 
