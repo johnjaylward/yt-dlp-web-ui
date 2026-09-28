@@ -20,6 +20,7 @@ type PostprocessTemplate struct {
 type DownloadOutput struct {
 	Path          string
 	Filename      string
+	TempPath      string `json:"tempPath,omitempty"`
 	SavedFilePath string `json:"savedFilePath"`
 }
 

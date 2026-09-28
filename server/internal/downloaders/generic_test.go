@@ -53,6 +53,7 @@ func TestRestoreFromSnapshotReusesDownloadTempPath(t *testing.T) {
 	d.output.Filename = "%(title)s.%(ext)s"
 
 	originalTempPath := d.tempPath(d.output.Path)
+	d.output.TempPath = originalTempPath
 	if err := os.MkdirAll(originalTempPath, 0750); err != nil {
 		t.Fatal(err)
 	}
@@ -71,8 +72,32 @@ func TestRestoreFromSnapshotReusesDownloadTempPath(t *testing.T) {
 	if resumedTempPath != originalTempPath {
 		t.Fatalf("resumed temp path = %q, want %q", resumedTempPath, originalTempPath)
 	}
+	if !restored.useIsolatedTemp {
+		t.Fatal("restored download did not retain isolated temp-path mode")
+	}
 	if _, err := os.Stat(filepath.Join(resumedTempPath, "video.part")); err != nil {
 		t.Fatalf("partial file is not available at resumed temp path: %v", err)
+	}
+}
+
+func TestRestoreFromLegacySnapshotKeepsLegacyTempBehavior(t *testing.T) {
+	snapshot := &internal.ProcessSnapshot{
+		URL: "https://example.com/video",
+		Output: internal.DownloadOutput{
+			Path:     t.TempDir(),
+			Filename: "%(title)s.%(ext)s",
+		},
+	}
+
+	d := NewGenericDownload("", nil).(*GenericDownloader)
+	if err := d.RestoreFromSnapshot(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if d.useIsolatedTemp {
+		t.Fatal("legacy snapshot unexpectedly enabled isolated temp paths")
+	}
+	if d.output.TempPath != "" {
+		t.Fatalf("legacy snapshot temp path = %q, want empty", d.output.TempPath)
 	}
 }
 
@@ -130,6 +155,7 @@ func TestCleanupFailedArtifactsRemovesOnlyJobTempDirectory(t *testing.T) {
 	d.progress.Status = internal.StatusErrored
 
 	jobTempDir := d.tempPath(root)
+	d.output.TempPath = jobTempDir
 	if err := os.MkdirAll(jobTempDir, 0750); err != nil {
 		t.Fatal(err)
 	}

@@ -43,7 +43,8 @@ type GenericDownloader struct {
 
 	proc *os.Process
 
-	logConsumer LogConsumer
+	logConsumer     LogConsumer
+	useIsolatedTemp bool
 
 	// embedded
 	DownloaderBase
@@ -58,6 +59,7 @@ func NewGenericDownload(url string, params []string) Downloader {
 	g.URL = url
 	g.Params = params
 	g.Completed = false
+	g.useIsolatedTemp = true
 
 	return g
 }
@@ -98,9 +100,15 @@ func (g *GenericDownloader) Start() (startErr error) {
 	buildFilename(&out)
 	g.output.Path = out.Path
 	g.output.Filename = out.Filename
-	tempPath := g.tempPath(out.Path)
-	if err := os.MkdirAll(tempPath, 0750); err != nil {
-		return err
+	tempPath := g.output.TempPath
+	if g.useIsolatedTemp {
+		if tempPath == "" {
+			tempPath = g.tempPath(out.Path)
+			g.output.TempPath = tempPath
+		}
+		if err := os.MkdirAll(tempPath, 0750); err != nil {
+			return err
+		}
 	}
 
 	templateReplacer := strings.NewReplacer("\n", "", "\t", "", " ", "")
@@ -122,6 +130,9 @@ func (g *GenericDownloader) Start() (startErr error) {
 		"--remote-components",
 		"ejs:github",
 	}
+	if g.useIsolatedTemp {
+		baseParams = append(baseParams, "--paths", "home:"+out.Path, "--paths", "temp:"+tempPath)
+	}
 
 	// if user asked to manually override the output path...
 	if !(slices.Contains(g.Params, "-P") || slices.Contains(g.Params, "--paths")) {
@@ -135,8 +146,12 @@ func (g *GenericDownloader) Start() (startErr error) {
 			return errors.New(ErrIsNotSubPath)
 		}
 
+		outputTemplate := outputPath
+		if g.useIsolatedTemp {
+			outputTemplate = out.Filename
+		}
 		g.Params = append(g.Params, "-o")
-		g.Params = append(g.Params, outputPath)
+		g.Params = append(g.Params, outputTemplate)
 	}
 
 	params := append(baseParams, g.Params...)
@@ -185,7 +200,7 @@ func (g *GenericDownloader) Start() (startErr error) {
 
 	g.SetPending(false)
 	err = cmd.Wait()
-	if err == nil {
+	if err == nil && g.useIsolatedTemp {
 		if cleanupErr := os.RemoveAll(tempPath); cleanupErr != nil {
 			slog.Warn("failed to remove download temp directory",
 				slog.String("id", g.Id),
@@ -203,7 +218,7 @@ func (g *GenericDownloader) tempPath(root string) string {
 }
 
 func (g *GenericDownloader) CleanupFailedArtifacts() error {
-	if g.progress.Status != internal.StatusErrored {
+	if g.progress.Status != internal.StatusErrored || g.output.TempPath == "" {
 		return nil
 	}
 
@@ -283,6 +298,7 @@ func (g *GenericDownloader) RestoreFromSnapshot(snap *internal.ProcessSnapshot) 
 	g.Completed = s.Completed || s.Progress.Status == internal.StatusCompleted
 	g.progress = s.Progress
 	g.output = s.Output
+	g.useIsolatedTemp = s.Output.TempPath != ""
 	g.Params = s.Params
 
 	return nil
