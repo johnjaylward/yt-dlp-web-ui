@@ -94,6 +94,10 @@ func (s *Service) GetCookies(ctx context.Context) ([]byte, error) {
 	defer root.Close()
 	fd, err := root.Open("cookies.txt")
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// Cookies are optional. Treat a missing file as an empty cookie set.
+			return []byte{}, nil
+		}
 		return nil, err
 	}
 
