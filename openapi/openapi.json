@@ -1,273 +1,84 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Swagger yt-dlp-webui - OpenAPI 3.1",
-    "description": "yt-dlp-webui api based on the OpenAPI 3.1 specification.  You can find out more about\nSwagger at [https://swagger.io](https://swagger.io). \n\nSome useful links:\n- [yt-dlp-webui repository](https://github.com/marcopiovanello/yt-dlp-web-ui)",
-    "termsOfService": "http://swagger.io/terms/",
-    "contact": {
-      "email": "apiteam@swagger.io"
-    },
-    "license": {
-      "name": "Apache 2.0",
-      "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
-    },
-    "version": "1.0.11"
+    "title": "yt-dlp-web-ui API",
+    "version": "4",
+    "description": "HTTP API for managing yt-dlp downloads and the web UI. When authentication is enabled in the server configuration, protected endpoints require the JWT in the X-Authentication header (or token query parameter)."
   },
-  "externalDocs": {
-    "description": "Find out more about Swagger",
-    "url": "http://swagger.io"
-  },
-  "servers": [
-    {
-      "url": "/api/v1"
-    }
-  ],
+  "servers": [{ "url": "/" }],
   "tags": [
-    {
-      "name": "download",
-      "description": "Everything about your Pets",
-      "externalDocs": {
-        "description": "Find out more",
-        "url": "https://github.com/marcopiovanello/yt-dlp-web-ui"
-      }
-    }
+    { "name": "Downloads", "description": "Start and inspect downloads." },
+    { "name": "Configuration", "description": "Manage cookies and download templates." },
+    { "name": "Status", "description": "Server activity." },
+    { "name": "Subscriptions", "description": "Scheduled downloads." },
+    { "name": "Pipelines", "description": "Post processing pipelines." },
+    { "name": "Files", "description": "Browse and retrieve downloaded files." },
+    { "name": "Authentication", "description": "Local authentication endpoints." },
+    { "name": "Twitch", "description": "Manage monitored Twitch users." }
   ],
   "paths": {
-    "/exec": {
-      "post": {
-        "tags": [
-          "download"
-        ],
-        "summary": "Add a new download in the pending state ready to be processed",
-        "description": "Add a new download in the pending state ready to be processed",
-        "operationId": "addDownload",
-        "requestBody": {
-          "description": "Create a new download",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DownloadRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "string",
-                  "description": "Process uuid"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "422": {
-            "description": "Validation exception"
-          }
-        },
-        "security": [
-          {
-            "api_key": [
-              "write:download",
-              "read:download"
-            ]
-          }
-        ]
-      }
+    "/api/v1/exec": { "post": { "tags": ["Downloads"], "summary": "Start a download", "requestBody": { "$ref": "#/components/requestBodies/DownloadRequest" }, "responses": { "200": { "description": "Download ID", "content": { "application/json": { "schema": { "type": "string" } } } }, "500": { "$ref": "#/components/responses/Error" } } } },
+    "/api/v1/execPlaylist": { "post": { "tags": ["Downloads"], "summary": "Start a playlist download", "requestBody": { "$ref": "#/components/requestBodies/DownloadRequest" }, "responses": { "200": { "$ref": "#/components/responses/OK" }, "500": { "$ref": "#/components/responses/Error" } } } },
+    "/api/v1/execLivestream": { "post": { "tags": ["Downloads"], "summary": "Start a livestream download", "requestBody": { "$ref": "#/components/requestBodies/DownloadRequest" }, "responses": { "200": { "$ref": "#/components/responses/OK" }, "500": { "$ref": "#/components/responses/Error" } } } },
+    "/api/v1/running": { "get": { "tags": ["Downloads"], "summary": "List download processes", "responses": { "200": { "description": "Process snapshots", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ProcessSnapshot" } } } } } } } },
+    "/api/v1/version": { "get": { "tags": ["Status"], "summary": "Get API and yt-dlp versions", "responses": { "200": { "description": "Version information", "content": { "application/json": { "schema": { "type": "object", "properties": { "rpcVersion": { "type": "string" }, "ytdlpVersion": { "type": "string" } } } } } } } } },
+    "/api/v1/cookies": {
+      "get": { "tags": ["Configuration"], "summary": "Get cookies file content", "responses": { "200": { "description": "Cookie file", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Cookies" } } } } } },
+      "post": { "tags": ["Configuration"], "summary": "Set cookies file content", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Cookies" } } } }, "responses": { "200": { "$ref": "#/components/responses/OK" } } },
+      "delete": { "tags": ["Configuration"], "summary": "Delete cookies", "responses": { "200": { "$ref": "#/components/responses/OK" } } }
     },
-    "/running": {
-      "get": {
-        "tags": [
-          "download"
-        ],
-        "summary": "Returns all running and pending process",
-        "description": "Returns all running and pending process",
-        "operationId": "running",
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProcessResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "422": {
-            "description": "Validation exception"
-          }
-        },
-        "security": [
-          {
-            "api_key": [
-              "write:download",
-              "read:download"
-            ]
-          }
-        ]
-      }
-    }
+    "/api/v1/template": {
+      "post": { "tags": ["Configuration"], "summary": "Create a download template", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Template" } } } }, "responses": { "200": { "$ref": "#/components/responses/OK" }, "400": { "$ref": "#/components/responses/Error" } } },
+      "patch": { "tags": ["Configuration"], "summary": "Update a download template", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Template" } } } }, "responses": { "200": { "description": "Updated template", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Template" } } } } } }
+    },
+    "/api/v1/template/all": { "get": { "tags": ["Configuration"], "summary": "List download templates", "responses": { "200": { "description": "Templates", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Template" } } } } } } } },
+    "/api/v1/template/{id}": { "delete": { "tags": ["Configuration"], "summary": "Delete a download template", "parameters": [{ "$ref": "#/components/parameters/ID" }], "responses": { "200": { "$ref": "#/components/responses/OK" } } } },
+    "/status/": { "get": { "tags": ["Status"], "summary": "Get download queue status", "responses": { "200": { "description": "Queue status", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Status" } } } } } } },
+    "/subscriptions/": {
+      "get": { "tags": ["Subscriptions"], "summary": "List subscriptions", "parameters": [{ "name": "id", "in": "query", "schema": { "type": "integer", "default": 0 } }, { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } }], "responses": { "200": { "description": "Subscription page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SubscriptionPage" } } } } } },
+      "post": { "tags": ["Subscriptions"], "summary": "Create a subscription", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Subscription" } } } }, "responses": { "200": { "description": "Created subscription", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Subscription" } } } } } },
+      "patch": { "tags": ["Subscriptions"], "summary": "Update a subscription", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Subscription" } } } }, "responses": { "200": { "description": "Updated subscription", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Subscription" } } } } } }
+    },
+    "/subscriptions/cursor": { "get": { "tags": ["Subscriptions"], "summary": "Get subscription cursor", "responses": { "200": { "description": "Cursor", "content": { "application/json": { "schema": { "type": "integer", "format": "int64" } } } } } } },
+    "/subscriptions/{id}": { "delete": { "tags": ["Subscriptions"], "summary": "Delete a subscription", "parameters": [{ "$ref": "#/components/parameters/ID" }], "responses": { "200": { "$ref": "#/components/responses/OK" } } } },
+    "/pipelines/all": { "get": { "tags": ["Pipelines"], "summary": "List pipelines", "responses": { "200": { "description": "Pipelines", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Pipeline" } } } } } } } },
+    "/pipelines/": { "post": { "tags": ["Pipelines"], "summary": "Create or save a pipeline", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Pipeline" } } } }, "responses": { "200": { "description": "Pipeline ID", "content": { "application/json": { "schema": { "type": "string" } } } } } } },
+    "/pipelines/id/{id}": {
+      "get": { "tags": ["Pipelines"], "summary": "Get a pipeline", "parameters": [{ "$ref": "#/components/parameters/ID" }], "responses": { "200": { "description": "Pipeline", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Pipeline" } } } } } },
+      "delete": { "tags": ["Pipelines"], "summary": "Delete a pipeline", "parameters": [{ "$ref": "#/components/parameters/ID" }], "responses": { "200": { "$ref": "#/components/responses/OK" } } }
+    },
+    "/filebrowser/downloaded": { "post": { "tags": ["Files"], "summary": "List downloaded files", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "subdir": { "type": "string" }, "orderBy": { "type": "string", "enum": ["modtime"] } } } } } }, "responses": { "200": { "description": "Directory entries", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/DirectoryEntry" } } } } } } } },
+    "/filebrowser/delete": { "post": { "tags": ["Files"], "summary": "Delete a downloaded file", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DirectoryEntry" } } } }, "responses": { "200": { "$ref": "#/components/responses/OK" } } } },
+    "/filebrowser/d/{id}": { "get": { "tags": ["Files"], "summary": "Download a file", "description": "The path parameter is the standard Base64 encoding of the absolute file path.", "parameters": [{ "$ref": "#/components/parameters/ID" }], "responses": { "200": { "description": "File content", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } } } } },
+    "/filebrowser/v/{id}": { "get": { "tags": ["Files"], "summary": "Serve a file inline", "description": "The path parameter is the standard Base64 encoding of the absolute file path.", "parameters": [{ "$ref": "#/components/parameters/ID" }], "responses": { "200": { "description": "File content", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } } } } },
+    "/filebrowser/bulk": { "get": { "tags": ["Files"], "summary": "Download completed files as ZIP", "responses": { "200": { "description": "ZIP archive", "content": { "application/zip": { "schema": { "type": "string", "format": "binary" } } } } } } },
+    "/auth/login": { "post": { "tags": ["Authentication"], "summary": "Log in", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["username", "password"], "properties": { "username": { "type": "string" }, "password": { "type": "string", "format": "password" } } } } } }, "responses": { "200": { "description": "JWT", "content": { "application/json": { "schema": { "type": "string" } } } }, "400": { "$ref": "#/components/responses/Error" } } } },
+    "/auth/logout": { "get": { "tags": ["Authentication"], "summary": "Log out", "responses": { "200": { "description": "Logout cookie cleared" } } } },
+    "/twitch/users": { "get": { "tags": ["Twitch"], "summary": "List monitored Twitch users", "responses": { "200": { "description": "User names", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "string" } } } } } } } },
+    "/twitch/user": { "post": { "tags": ["Twitch"], "summary": "Monitor a Twitch user", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["user"], "properties": { "user": { "type": "string" } } } } } }, "responses": { "200": { "$ref": "#/components/responses/OK" } } } },
+    "/twitch/user/{user}": { "delete": { "tags": ["Twitch"], "summary": "Stop monitoring a Twitch user", "parameters": [{ "name": "user", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/OK" } } } }
   },
   "components": {
-    "schemas": {
-      "DownloadRequest": {
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "string",
-            "examples": [
-              "https://..."
-            ]
-          },
-          "params": {
-            "type": "array",
-            "format": "string",
-            "examples": [
-              "-N",
-              "4",
-              "-R",
-              "infinite"
-            ]
-          }
-        }
-      },
-      "DownloadResponse": {
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "string",
-            "examples": [
-              "https://..."
-            ]
-          },
-          "params": {
-            "type": "array",
-            "format": "string",
-            "examples": [
-              "-N",
-              "4",
-              "-R",
-              "infinite"
-            ]
-          }
-        }
-      },
-      "DownloadProgress": {
-        "type": "object",
-        "properties": {
-          "process_status": {
-            "type": "integer",
-            "examples": [
-              0,
-              1,
-              2,
-              3
-            ]
-          },
-          "percentage": {
-            "type": "string",
-            "examples": [
-              "50%"
-            ]
-          },
-          "speed": {
-            "type": "integer",
-            "examples": [
-              7289347
-            ]
-          },
-          "eta": {
-            "type": "integer",
-            "examples": [
-              3600
-            ]
-          }
-        }
-      },
-      "DownloadInfo": {
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "thumbnail": {
-            "type": "string"
-          },
-          "resolution": {
-            "type": "string"
-          },
-          "size": {
-            "type": "integer"
-          },
-          "vcodec": {
-            "type": "string"
-          },
-          "acodec": {
-            "type": "string"
-          },
-          "extension": {
-            "type": "string"
-          },
-          "original_url": {
-            "type": "string"
-          },
-          "created_at": {
-            "type": "object"
-          }
-        }
-      },
-      "DownloadOutput": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string"
-          },
-          "filename": {
-            "type": "string"
-          },
-          "saveFilePath": {
-            "type": "string"
-          }
-        }
-      },
-      "ProcessResponse": {
-        "type": "object",
-        "properties": {
-          "progress": {
-            "$ref": "#/components/schemas/DownloadProgress"
-          },
-          "info": {
-            "$ref": "#/components/schemas/DownloadInfo"
-          },
-          "output": {
-            "$ref": "#/components/schemas/DownloadOutput"
-          },
-          "params": {
-            "type": "array",
-            "format": "string"
-          }
-        }
-      }
+    "securitySchemes": { "jwtHeader": { "type": "apiKey", "in": "header", "name": "X-Authentication" } },
+    "parameters": { "ID": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } } },
+    "requestBodies": { "DownloadRequest": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DownloadRequest" } } } } },
+    "responses": {
+      "OK": { "description": "Successful operation", "content": { "application/json": { "schema": { "type": "string", "const": "ok" } } } },
+      "Error": { "description": "Request failed", "content": { "text/plain": { "schema": { "type": "string" } } } }
     },
-    "securitySchemes": {
-      "api_key": {
-        "type": "apiKey",
-        "name": "api_key",
-        "in": "header"
-      }
+    "schemas": {
+      "DownloadRequest": { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "format": "uri" }, "path": { "type": "string" }, "rename": { "type": "string" }, "params": { "type": "array", "items": { "type": "string" } } } },
+      "Cookies": { "type": "object", "properties": { "cookies": { "type": "string", "description": "Netscape-format cookies file content." } } },
+      "Template": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "content": { "type": "string" } } },
+      "Progress": { "type": "object", "properties": { "process_status": { "type": "integer" }, "percentage": { "type": "string" }, "speed": { "type": "number" }, "eta": { "type": "number" } } },
+      "DownloadOutput": { "type": "object", "properties": { "Path": { "type": "string" }, "Filename": { "type": "string" }, "tempPath": { "type": "string" }, "savedFilePath": { "type": "string" } } },
+      "ProcessSnapshot": { "type": "object", "properties": { "id": { "type": "string" }, "url": { "type": "string" }, "completed": { "type": "boolean" }, "progress": { "$ref": "#/components/schemas/Progress" }, "info": { "type": "object", "description": "yt-dlp metadata fields." }, "output": { "$ref": "#/components/schemas/DownloadOutput" }, "params": { "type": "array", "items": { "type": "string" } }, "downloader_name": { "type": "string" } } },
+      "Status": { "type": "object", "properties": { "downloading": { "type": "integer" }, "pending": { "type": "integer" }, "completed": { "type": "integer" }, "download_speed": { "type": "integer" } } },
+      "Subscription": { "type": "object", "properties": { "id": { "type": "string" }, "url": { "type": "string" }, "params": { "type": "string" }, "cron_expression": { "type": "string" } } },
+      "SubscriptionPage": { "type": "object", "properties": { "first": { "type": "integer", "format": "int64" }, "next": { "type": "integer", "format": "int64" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/Subscription" } } } },
+      "Pipeline": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "steps": { "type": "array", "items": { "$ref": "#/components/schemas/PipelineStep" } } } },
+      "PipelineStep": { "type": "object", "properties": { "type": { "type": "string" }, "ffmpeg_args": { "type": "array", "items": { "type": "string" } }, "path": { "type": "string" }, "extension": { "type": "string" } } },
+      "DirectoryEntry": { "type": "object", "properties": { "name": { "type": "string" }, "path": { "type": "string" }, "size": { "type": "integer", "format": "int64" }, "modTime": { "type": "string", "format": "date-time" }, "isVideo": { "type": "boolean" }, "isDirectory": { "type": "boolean" } } }
     }
   }
 }
