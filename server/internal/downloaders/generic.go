@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/common"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal/safefs"
 )
 
 const downloadTemplate = `download:
@@ -97,7 +97,30 @@ func (g *GenericDownloader) Start() (startErr error) {
 		out.Filename = g.output.Filename
 	}
 
+	root, err := safefs.OpenDownloadRoot(config.Instance().Paths.DownloadPath)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	outRel, err := safefs.RelativePath(root.Name(), out.Path)
+	if err != nil {
+		return err
+	}
+	if err := root.MkdirAll(outRel, 0750); err != nil {
+		return err
+	}
+	outRoot, err := root.OpenRoot(outRel)
+	if err != nil {
+		return err
+	}
+	defer outRoot.Close()
+	out.Path = filepath.Join(root.Name(), outRel)
+
 	buildFilename(&out)
+	if filepath.IsAbs(out.Filename) || !filepath.IsLocal(out.Filename) ||
+		strings.ContainsAny(out.Filename, `/\\`) {
+		return errors.New("output filename must not contain a path")
+	}
 	g.output.Path = out.Path
 	g.output.Filename = out.Filename
 	tempPath := g.output.TempPath
@@ -105,9 +128,25 @@ func (g *GenericDownloader) Start() (startErr error) {
 		if tempPath == "" {
 			tempPath = g.tempPath(out.Path)
 			g.output.TempPath = tempPath
+		} else {
+			var tempRel string
+			tempRel, err = safefs.RelativePath(out.Path, tempPath)
+			if err != nil || tempRel == "." {
+				return errors.New("temporary directory must be inside the output directory")
+			}
+			tempPath = filepath.Join(out.Path, tempRel)
 		}
-		if err := os.MkdirAll(tempPath, 0750); err != nil {
+		tempRel, err := safefs.RelativePath(out.Path, tempPath)
+		if err != nil || tempRel == "." {
+			return errors.New("temporary directory must be inside the output directory")
+		}
+		if err := outRoot.MkdirAll(tempRel, 0750); err != nil {
 			return err
+		}
+		if tempRoot, err := outRoot.OpenRoot(tempRel); err != nil {
+			return err
+		} else {
+			tempRoot.Close()
 		}
 	}
 
@@ -135,24 +174,23 @@ func (g *GenericDownloader) Start() (startErr error) {
 	}
 
 	// if user asked to manually override the output path...
-	if !(slices.Contains(g.Params, "-P") || slices.Contains(g.Params, "--paths")) {
-		outputPath := filepath.Join(out.Path, out.Filename)
-
-		rel, err := filepath.Rel(config.Instance().Paths.DownloadPath, outputPath)
-		if err != nil {
-			return err
-		}
-		if strings.HasPrefix(rel, "..") {
-			return errors.New(ErrIsNotSubPath)
-		}
-
-		outputTemplate := outputPath
-		if g.useIsolatedTemp {
-			outputTemplate = out.Filename
-		}
-		g.Params = append(g.Params, "-o")
-		g.Params = append(g.Params, outputTemplate)
+	outputPath := filepath.Join(out.Path, out.Filename)
+	outputRel, err := safefs.RelativePath(root.Name(), outputPath)
+	if err != nil {
+		return errors.New(ErrIsNotSubPath)
 	}
+	if parent := filepath.Dir(outputRel); parent != "." {
+		if checkRoot, err := root.OpenRoot(parent); err != nil {
+			return err
+		} else {
+			checkRoot.Close()
+		}
+	}
+	outputTemplate := outputPath
+	if g.useIsolatedTemp {
+		outputTemplate = out.Filename
+	}
+	g.Params = append(g.Params, "-o", outputTemplate)
 
 	params := append(baseParams, g.Params...)
 
@@ -201,12 +239,17 @@ func (g *GenericDownloader) Start() (startErr error) {
 	g.SetPending(false)
 	err = cmd.Wait()
 	if err == nil && g.useIsolatedTemp {
-		if cleanupErr := os.RemoveAll(tempPath); cleanupErr != nil {
-			slog.Warn("failed to remove download temp directory",
-				slog.String("id", g.Id),
-				slog.String("path", tempPath),
-				slog.Any("err", cleanupErr),
-			)
+		tempRel, relErr := safefs.RelativePath(out.Path, tempPath)
+		if relErr == nil {
+			if cleanupErr := outRoot.RemoveAll(tempRel); cleanupErr != nil {
+				slog.Warn("failed to remove download temp directory",
+					slog.String("id", g.Id),
+					slog.String("path", tempPath),
+					slog.Any("err", cleanupErr),
+				)
+			}
+		} else {
+			slog.Warn("refusing to remove temp directory outside output root", slog.String("path", tempPath), slog.Any("err", relErr))
 		}
 	}
 	return err
@@ -226,7 +269,25 @@ func (g *GenericDownloader) CleanupFailedArtifacts() error {
 	if root == "" {
 		root = config.Instance().Paths.DownloadPath
 	}
-	return os.RemoveAll(g.tempPath(root))
+	fsRoot, err := safefs.OpenDownloadRoot(config.Instance().Paths.DownloadPath)
+	if err != nil {
+		return err
+	}
+	defer fsRoot.Close()
+	rootRel, err := safefs.RelativePath(fsRoot.Name(), root)
+	if err != nil {
+		return err
+	}
+	outRoot, err := fsRoot.OpenRoot(rootRel)
+	if err != nil {
+		return err
+	}
+	defer outRoot.Close()
+	tempRel, err := safefs.RelativePath(root, g.output.TempPath)
+	if err != nil || tempRel == "." {
+		return errors.New("temporary directory is outside output root")
+	}
+	return outRoot.RemoveAll(tempRel)
 }
 
 func (g *GenericDownloader) Stop() error {

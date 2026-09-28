@@ -4,6 +4,9 @@ import (
 	"io"
 	"log/slog"
 	"os"
+
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal/safefs"
 )
 
 type FileWriter struct {
@@ -14,7 +17,16 @@ type FileWriter struct {
 func (f *FileWriter) Name() string { return "file-writer" }
 
 func (f *FileWriter) Connect(r io.Reader) (io.Reader, error) {
-	file, err := os.Create(f.Path)
+	root, err := safefs.OpenDownloadRoot(config.Instance().Paths.DownloadPath)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	rel, err := safefs.RelativePath(root.Name(), f.Path)
+	if err != nil || rel == "." {
+		return nil, os.ErrPermission
+	}
+	file, err := root.OpenFile(rel, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
 	if err != nil {
 		return nil, err
 	}

@@ -87,7 +87,12 @@ func (s *Service) Running(ctx context.Context) (*[]internal.ProcessSnapshot, err
 }
 
 func (s *Service) GetCookies(ctx context.Context) ([]byte, error) {
-	fd, err := os.Open("cookies.txt")
+	root, err := os.OpenRoot(".")
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	fd, err := root.Open("cookies.txt")
 	if err != nil {
 		return nil, err
 	}
@@ -103,13 +108,23 @@ func (s *Service) GetCookies(ctx context.Context) ([]byte, error) {
 }
 
 func (s *Service) SetCookies(ctx context.Context, cookies string) error {
-	fd, err := os.Create("cookies.txt")
+	root, err := os.OpenRoot(".")
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	fd, err := root.OpenFile("cookies.txt", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
 
 	defer fd.Close()
-	fd.WriteString(cookies)
+	if err := fd.Chmod(0600); err != nil {
+		return err
+	}
+	if _, err := fd.WriteString(cookies); err != nil {
+		return err
+	}
 
 	return nil
 }

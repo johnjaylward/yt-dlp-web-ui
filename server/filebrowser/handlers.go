@@ -20,6 +20,7 @@ import (
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal/kv"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal/safefs"
 )
 
 /*
@@ -50,8 +51,17 @@ type DirectoryEntry struct {
 	IsDirectory bool      `json:"isDirectory"`
 }
 
-func walkDir(root string) (*[]DirectoryEntry, error) {
-	dirs, err := os.ReadDir(root)
+func walkDir(root *os.Root, subdir string) (*[]DirectoryEntry, error) {
+	rel, err := safefs.CleanRelativePath(subdir)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := root.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	dirs, err := dir.ReadDir(-1)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +73,7 @@ func walkDir(root string) (*[]DirectoryEntry, error) {
 			continue
 		}
 
-		path := filepath.Join(root, d.Name())
+		path := filepath.Join(root.Name(), rel, d.Name())
 
 		info, err := d.Info()
 		if err != nil {
@@ -90,6 +100,12 @@ type ListRequest struct {
 
 func ListDownloaded(w http.ResponseWriter, r *http.Request) {
 	root := config.Instance().Paths.DownloadPath
+	fsRoot, err := safefs.OpenDownloadRoot(root)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer fsRoot.Close()
 	req := new(ListRequest)
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -97,7 +113,7 @@ func ListDownloaded(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	files, err := walkDir(filepath.Join(root, req.SubDir))
+	files, err := walkDir(fsRoot, req.SubDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -126,7 +142,18 @@ func DeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.Remove(req.Path); err != nil {
+	fsRoot, err := safefs.OpenDownloadRoot(config.Instance().Paths.DownloadPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer fsRoot.Close()
+	rel, err := safefs.RelativePath(fsRoot.Name(), req.Path)
+	if err != nil || rel == "." {
+		http.Error(w, "path must identify an entry inside the download directory", http.StatusBadRequest)
+		return
+	}
+	if err := fsRoot.Remove(rel); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -148,23 +175,35 @@ func SendFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
 	decoded, err := base64.StdEncoding.DecodeString(path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	filename := string(decoded)
-
-	root := config.Instance().Paths.DownloadPath
-
-	if strings.Contains(filepath.Dir(filepath.Clean(filename)), filepath.Clean(root)) {
-		http.ServeFile(w, r, filename)
+	fsRoot, err := safefs.OpenDownloadRoot(config.Instance().Paths.DownloadPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	w.WriteHeader(http.StatusUnauthorized)
+	defer fsRoot.Close()
+	rel, err := safefs.RelativePath(fsRoot.Name(), string(decoded))
+	if err != nil || rel == "." {
+		http.Error(w, "path is outside download directory", http.StatusForbidden)
+		return
+	}
+	fd, err := fsRoot.Open(rel)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	defer fd.Close()
+	info, err := fd.Stat()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.ServeContent(w, r, filepath.Base(rel), info.ModTime(), fd)
 }
 
 func DownloadFile(w http.ResponseWriter, r *http.Request) {
@@ -180,38 +219,54 @@ func DownloadFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
 	decoded, err := base64.StdEncoding.DecodeString(path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	filename := string(decoded)
-
-	root := config.Instance().Paths.DownloadPath
-
-	if strings.Contains(filepath.Dir(filepath.Clean(filename)), filepath.Clean(root)) {
-		w.Header().Add("Content-Disposition", "inline; filename=\""+filepath.Base(filename)+"\"")
-		w.Header().Set("Content-Type", "application/octet-stream")
-
-		fd, err := os.Open(filename)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		io.Copy(w, fd)
+	fsRoot, err := safefs.OpenDownloadRoot(config.Instance().Paths.DownloadPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	w.WriteHeader(http.StatusUnauthorized)
+	defer fsRoot.Close()
+	rel, err := safefs.RelativePath(fsRoot.Name(), string(decoded))
+	if err != nil || rel == "." {
+		http.Error(w, "path is outside download directory", http.StatusForbidden)
+		return
+	}
+	fd, err := fsRoot.Open(rel)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	defer fd.Close()
+	info, err := fd.Stat()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filepath.Base(rel)+"\"")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeContent(w, r, filepath.Base(rel), info.ModTime(), fd)
 }
 
 func BulkDownload(mdb *kv.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		fsRoot, err := safefs.OpenDownloadRoot(config.Instance().Paths.DownloadPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer fsRoot.Close()
+
 		ps := slices.DeleteFunc(*mdb.All(), func(e internal.ProcessSnapshot) bool {
-			return e.Progress.Status != internal.StatusCompleted
+			if e.Progress.Status != internal.StatusCompleted {
+				return true
+			}
+			rel, err := safefs.RelativePath(fsRoot.Name(), e.Output.SavedFilePath)
+			return err != nil || rel == "."
 		})
 
 		if len(ps) == 0 {
@@ -233,7 +288,12 @@ func BulkDownload(mdb *kv.Store) http.HandlerFunc {
 				return
 			}
 
-			fd, err := os.Open(p.Output.SavedFilePath)
+			rel, err := safefs.RelativePath(fsRoot.Name(), p.Output.SavedFilePath)
+			if err != nil || rel == "." {
+				http.Error(w, "saved file is outside download directory", http.StatusForbidden)
+				return
+			}
+			fd, err := fsRoot.Open(rel)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

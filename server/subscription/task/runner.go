@@ -53,6 +53,22 @@ func NewCronTaskRunner(mq *queue.MessageQueue, db *kv.Store) TaskRunner {
 
 var argsSplitterRe = regexp.MustCompile(`(?mi)[^\s"']+|"([^"]*)"|'([^']*)'`)
 
+func splitArgs(value string) []string {
+	matches := argsSplitterRe.FindAllStringSubmatch(value, -1)
+	args := make([]string, 0, len(matches))
+	for _, match := range matches {
+		switch {
+		case len(match) > 1 && match[1] != "":
+			args = append(args, match[1])
+		case len(match) > 2 && match[2] != "":
+			args = append(args, match[2])
+		default:
+			args = append(args, match[0])
+		}
+	}
+	return args
+}
+
 func (t *CronTaskRunner) Submit(subcription *domain.Subscription) error {
 	schedule, err := cron.ParseStandard(subcription.CronExpr)
 	if err != nil {
@@ -154,7 +170,7 @@ func (t *CronTaskRunner) fetcher(ctx context.Context, req *monitorTask) time.Dur
 	d := downloaders.NewGenericDownload(
 		latestVideoURL,
 		append(
-			argsSplitterRe.FindAllString(req.Subscription.Params, 1),
+			splitArgs(req.Subscription.Params),
 			[]string{
 				"--break-on-existing",
 				"--download-archive",

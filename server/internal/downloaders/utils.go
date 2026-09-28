@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal"
 )
 
@@ -125,6 +127,34 @@ func argsSanitizer(params []string) ([]string, error) {
 			continue
 		}
 		flag := strings.SplitN(p, "=", 2)[0]
+		if flag == "--cookies" || flag == "--download-archive" {
+			value := ""
+			inline := strings.Contains(p, "=")
+			if inline {
+				value = strings.SplitN(p, "=", 2)[1]
+			} else if i+1 < len(params) {
+				i++
+				value = params[i]
+			}
+
+			switch flag {
+			case "--cookies":
+				if value != "cookies.txt" {
+					return nil, fmt.Errorf("--cookies may only use the configured cookies.txt file")
+				}
+			case "--download-archive":
+				archivePath := filepath.Join(config.Instance().Dir(), "archive.txt")
+				if value != archivePath {
+					return nil, fmt.Errorf("--download-archive may only use the configured archive file")
+				}
+			}
+			if inline {
+				out = append(out, p)
+			} else {
+				out = append(out, flag, value)
+			}
+			continue
+		}
 		if !allowedFlags[flag] {
 			return nil, fmt.Errorf("param %s not allowed", p)
 		}
