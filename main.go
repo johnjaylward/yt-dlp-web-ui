@@ -58,6 +58,8 @@ func main() {
 	v.SetDefault("authentication.require_auth", false)
 	v.SetDefault("openid.username_claim", "preferred_username")
 	v.SetDefault("openid.admin_usernames", []string{})
+	v.SetDefault("openid.require_verified_email", true)
+	v.SetDefault("cors.allowed_origins", []string{})
 
 	// Env binding
 	v.SetEnvPrefix("APP")
@@ -73,6 +75,14 @@ func main() {
 	if err := v.Unmarshal(&cfg); err != nil {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
+	}
+	if rawOrigins, ok := os.LookupEnv("APP_CORS_ALLOWED_ORIGINS"); ok {
+		cfg.CORS.AllowedOrigins = make([]string, 0)
+		for _, origin := range strings.Split(rawOrigins, ",") {
+			if origin = strings.TrimSpace(origin); origin != "" {
+				cfg.CORS.AllowedOrigins = append(cfg.CORS.AllowedOrigins, origin)
+			}
+		}
 	}
 	if cfg.Authentication.RequireAuth && cfg.OpenId.UseOpenId && cfg.Authentication.IsAdmin == nil {
 		slog.Error("authentication.is_admin must be explicitly set when local and OIDC authentication are both enabled")

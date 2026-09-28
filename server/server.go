@@ -180,16 +180,17 @@ func newServer(c serverConfig) *http.Server {
 	r := chi.NewRouter()
 
 	corsMiddleware := cors.New(cors.Options{
-		AllowedOrigins: []string{"*"},
+		AllowOriginFunc: func(r *http.Request, origin string) bool {
+			return middlewares.OriginAllowed(r, origin, config.Instance().CORS.AllowedOrigins)
+		},
 		AllowedMethods: []string{
 			http.MethodHead,
 			http.MethodGet,
 			http.MethodPost,
-			http.MethodPut,
 			http.MethodPatch,
 			http.MethodDelete,
 		},
-		AllowedHeaders:   []string{"*"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Authentication"},
 		AllowCredentials: true,
 	})
 

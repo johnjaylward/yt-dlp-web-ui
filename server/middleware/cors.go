@@ -1,15 +1,20 @@
 package middlewares
 
-import "net/http"
+import (
+	"net/http"
 
-// Middleware for applying CORS policy for ALL hosts and for
-// allowing ALL request headers.
+	"github.com/go-chi/cors"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
+)
+
+// CORS applies the configured same-origin-by-default CORS policy.
 func CORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "*")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		next.ServeHTTP(w, r)
-	})
+	return cors.New(cors.Options{
+		AllowOriginFunc: func(r *http.Request, origin string) bool {
+			return OriginAllowed(r, origin, config.Instance().CORS.AllowedOrigins)
+		},
+		AllowedMethods:   []string{http.MethodHead, http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Authentication"},
+		AllowCredentials: true,
+	}).Handler(next)
 }

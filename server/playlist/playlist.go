@@ -1,6 +1,7 @@
 package playlist
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -18,13 +19,16 @@ import (
 )
 
 func PlaylistDetect(req internal.DownloadRequest, mq *queue.MessageQueue, db *kv.Store) error {
-	params := append(req.Params, "--flat-playlist", "-J")
+	validatedParams, err := downloaders.SanitizeArgs(req.Params)
+	if err != nil {
+		return err
+	}
+	params := append(validatedParams, "--flat-playlist", "-J")
 	urlWithParams := append([]string{req.URL}, params...)
 
-	var (
-		downloader = config.Instance().Paths.DownloaderPath
-		cmd        = exec.Command(downloader, urlWithParams...)
-	)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, config.Instance().Paths.DownloaderPath, urlWithParams...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -40,6 +44,8 @@ func PlaylistDetect(req internal.DownloadRequest, mq *queue.MessageQueue, db *kv
 	slog.Info("decoding playlist metadata", slog.String("url", req.URL))
 
 	if err := json.NewDecoder(stdout).Decode(&m); err != nil {
+		cancel()
+		_ = cmd.Wait()
 		return err
 	}
 
@@ -98,5 +104,5 @@ func PlaylistDetect(req internal.DownloadRequest, mq *queue.MessageQueue, db *kv
 	mq.Publish(d)
 	slog.Info("sending new process to message queue", slog.String("url", d.GetUrl()))
 
-	return cmd.Wait()
+	return nil
 }

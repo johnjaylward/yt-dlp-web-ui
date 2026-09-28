@@ -9,12 +9,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
 	middlewares "github.com/marcopiovanello/yt-dlp-web-ui/v4/server/middleware"
 )
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		origin := r.Header.Get("Origin")
+		return origin == "" || middlewares.OriginAllowed(r, origin, config.Instance().CORS.AllowedOrigins)
 	},
 	ReadBufferSize:  1000,
 	WriteBufferSize: 1000,

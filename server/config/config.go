@@ -12,6 +12,7 @@ type Config struct {
 	Paths          PathsConfig    `mapstructure:"paths"`
 	Authentication AuthConfig     `mapstructure:"authentication"`
 	OpenId         OpenIdConfig   `mapstructure:"openid"`
+	CORS           CORSConfig     `mapstructure:"cors"`
 	Frontend       FrontendConfig `mapstructure:"frontend"`
 	AutoArchive    bool           `mapstructure:"auto_archive"`
 	Twitch         TwitchConfig   `mapstructure:"twitch"`
@@ -45,14 +46,19 @@ type AuthConfig struct {
 }
 
 type OpenIdConfig struct {
-	UseOpenId      bool     `mapstructure:"use_openid"`
-	ProviderURL    string   `mapstructure:"provider_url"`
-	ClientId       string   `mapstructure:"client_id"`
-	ClientSecret   string   `mapstructure:"client_secret"`
-	RedirectURL    string   `mapstructure:"redirect_url"`
-	EmailWhitelist []string `mapstructure:"email_whitelist"`
-	UsernameClaim  string   `mapstructure:"username_claim"`
-	AdminUsernames []string `mapstructure:"admin_usernames"`
+	UseOpenId            bool     `mapstructure:"use_openid"`
+	ProviderURL          string   `mapstructure:"provider_url"`
+	ClientId             string   `mapstructure:"client_id"`
+	ClientSecret         string   `mapstructure:"client_secret"`
+	RedirectURL          string   `mapstructure:"redirect_url"`
+	EmailWhitelist       []string `mapstructure:"email_whitelist"`
+	RequireVerifiedEmail bool     `mapstructure:"require_verified_email"`
+	UsernameClaim        string   `mapstructure:"username_claim"`
+	AdminUsernames       []string `mapstructure:"admin_usernames"`
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
 type FrontendConfig struct {

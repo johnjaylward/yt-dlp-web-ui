@@ -76,7 +76,7 @@ func (g *GenericDownloader) Start() (startErr error) {
 		g.Complete()
 	}()
 
-	whitelistedParams, err := argsSanitizer(g.Params)
+	whitelistedParams, err := SanitizeArgs(g.Params)
 	if err != nil {
 		return err
 	}

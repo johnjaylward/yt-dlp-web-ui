@@ -97,8 +97,13 @@ func doAuthentification(r *http.Request, setCookieCallback func(t *oauth2.Token)
 
 	whitelist := config.Instance().OpenId.EmailWhitelist
 
-	if len(whitelist) > 0 && !slices.Contains(whitelist, claims.Email) {
-		return nil, errors.New("email address not found in ACL")
+	if len(whitelist) > 0 {
+		if !slices.Contains(whitelist, claims.Email) {
+			return nil, errors.New("email address not found in ACL")
+		}
+		if config.Instance().OpenId.RequireVerifiedEmail && (!claims.Verified || claims.Email == "") {
+			return nil, errors.New("a verified email address is required by the configured email allowlist")
+		}
 	}
 
 	nonce, err := r.Cookie("nonce")

@@ -116,6 +116,8 @@ services:
     environment:
       # Required only when local authentication or OpenID authentication is enabled.
       JWT_SECRET: ${JWT_SECRET:-}
+      # Optional comma-separated origins for cross-origin browser access. Empty means same-origin only.
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-}
     ports:
       - 3033:3033
     volumes:
@@ -225,9 +227,25 @@ queue_size: 4 # min. 2
 # [optional] Path where the sqlite database will be created/opened (default: "./local.db")
 #local_database_path
 
+# [optional] Exact browser origins permitted for cross-origin access.
+# By default, cross-origin requests are not allowed (same-origin UI access still works).
+#cors:
+#  allowed_origins:
+#    - https://media.example.com
+
+# [optional] Require the IdP's email_verified claim when email_whitelist is configured (default: true).
+#openid:
+#  require_verified_email: true
+#  email_whitelist:
+#    - user@example.com
+
 # [optional] Path where a custom frontend will be loaded (instead of the embedded one)
 #frontend_path: ./web/solid-frontend
 ```
+
+When `openid.email_whitelist` is set, the default `openid.require_verified_email: true` also requires the identity provider to return `email_verified: true` for the matching email. Set it to `false` only if your provider's trust model requires accepting unverified email claims. The equivalent environment variable is `APP_OPENID_REQUIRE_VERIFIED_EMAIL`.
+
+`cors.allowed_origins` is an optional YAML list of origins allowed to make cross-origin browser requests, for example `https://ui.example.com` (include the scheme and port when needed, without a path). An empty or omitted list allows same-origin use only. The Docker environment variable `APP_CORS_ALLOWED_ORIGINS` accepts a comma-separated list; setting it to `*` allows any origin and should be used only when that broader policy is intended. RPC and log WebSocket connections use the same origin policy.
 
 ### Systemd integration
 By defining a service file in `/etc/systemd/system/yt-dlp-webui.service` yt-dlp webui can be launched as in background.

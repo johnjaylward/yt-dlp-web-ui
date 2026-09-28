@@ -3,6 +3,7 @@ package rpc
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
@@ -13,7 +14,8 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		origin := r.Header.Get("Origin")
+		return origin == "" || middlewares.OriginAllowed(r, origin, config.Instance().CORS.AllowedOrigins)
 	},
 }
 
@@ -41,7 +43,10 @@ func WebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		var res io.Reader
-		if adminRPCRequest(request) && !isAdmin(r) {
+		method, parseErr := singleRPCMethod(request)
+		if parseErr != nil {
+			res = invalidRPCRequestResponse()
+		} else if adminRPCMethod(method) && !isAdmin(r) {
 			res = adminRequiredResponse(request)
 		} else {
 			res = newRequest(bytes.NewReader(request)).Call()
@@ -66,8 +71,13 @@ func Post(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	method, err := singleRPCMethod(request)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	var res io.Reader
-	if adminRPCRequest(request) && !isAdmin(r) {
+	if adminRPCMethod(method) && !isAdmin(r) {
 		res = adminRequiredResponse(request)
 	} else {
 		res = newRequest(bytes.NewReader(request)).Call()
@@ -80,14 +90,43 @@ func Post(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func adminRPCRequest(request []byte) bool {
-	if !config.Instance().Authentication.RequireAuth && !config.Instance().OpenId.UseOpenId {
-		return false
-	}
+func singleRPCMethod(request []byte) (string, error) {
+	decoder := json.NewDecoder(bytes.NewReader(request))
 	var call struct {
 		Method string `json:"method"`
 	}
-	return json.Unmarshal(request, &call) == nil && call.Method == "Service.UpdateExecutable"
+	if err := decoder.Decode(&call); err != nil {
+		return "", err
+	}
+	if call.Method == "" {
+		return "", errors.New("JSON-RPC request is missing its method")
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return "", errors.New("only one JSON-RPC request is allowed per message")
+		}
+		return "", err
+	}
+	return call.Method, nil
+}
+
+func adminRPCMethod(method string) bool {
+	return (config.Instance().Authentication.RequireAuth || config.Instance().OpenId.UseOpenId) &&
+		method == "Service.UpdateExecutable"
+}
+
+func invalidRPCRequestResponse() io.Reader {
+	response, _ := json.Marshal(struct {
+		Error  string          `json:"error"`
+		Result json.RawMessage `json:"result"`
+		ID     json.RawMessage `json:"id"`
+	}{
+		Error:  "only one valid JSON-RPC request is allowed per message",
+		Result: json.RawMessage("null"),
+		ID:     json.RawMessage("null"),
+	})
+	return bytes.NewReader(response)
 }
 
 func isAdmin(r *http.Request) bool {
