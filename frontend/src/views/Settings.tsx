@@ -19,6 +19,7 @@ import {
 } from '@mui/material'
 import { useAtom } from 'jotai'
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import {
   Subject,
   debounceTime,
@@ -56,6 +57,7 @@ import { validateDomain, validateIP } from '../utils'
 
 // NEED ABSOLUTELY TO BE SPLIT IN MULTIPLE COMPONENTS
 export default function Settings() {
+  const { isAdmin } = useOutletContext<{ isAdmin: boolean }>()
   const [reverseProxy, setReverseProxy] = useAtom(servedFromReverseProxyState)
   const [baseURL, setBaseURL] = useAtom(servedFromReverseProxySubDirState)
 
@@ -382,19 +384,24 @@ export default function Settings() {
             />
           </Stack>
         </Grid>
-        <Grid sx={{ mr: 1, mt: 2 }}>
-          <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
-            Cookies
+        {isAdmin && <>
+          <Typography variant="h5" color="primary" sx={{ mt: 4, mb: 2 }}>
+            Server Admin
           </Typography>
-          <Suspense>
-            <CookiesTextField />
-          </Suspense>
-        </Grid>
-        <Grid>
-          <Stack direction="row" sx={{ pt: 2 }}>
-            <UpdateBinaryButton />
-          </Stack>
-        </Grid>
+          <Grid sx={{ mr: 1, mt: 2 }}>
+            <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
+              Cookies
+            </Typography>
+            <Suspense>
+              <CookiesTextField />
+            </Suspense>
+          </Grid>
+          <Grid>
+            <Stack direction="row" sx={{ pt: 2 }}>
+              <UpdateBinaryButton />
+            </Stack>
+          </Grid>
+        </>}
       </Paper>
     </Container>
   )

@@ -258,7 +258,7 @@ export default function Layout() {
                 <ListItemText primary={i18n.t('logsTitle')} />
               </ListItemButton>
             </Link>}
-            {isAdmin && <Link to={'/settings'} style={
+            <Link to={'/settings'} style={
               {
                 textDecoration: 'none',
                 color: mode === 'dark' ? '#ffffff' : '#000000DE'
@@ -270,7 +270,7 @@ export default function Layout() {
                 </ListItemIcon>
                 <ListItemText primary={i18n.t('settingsButtonLabel')} />
               </ListItemButton>
-            </Link>}
+            </Link>
             <ThemeToggler />
             <Logout />
           </List>
@@ -284,11 +284,11 @@ export default function Layout() {
           }}
         >
           <Toolbar />
-          {(location.pathname === '/settings' || location.pathname === '/log') && isAdmin === undefined
+          {location.pathname === '/log' && isAdmin === undefined
             ? null
-            : (location.pathname === '/settings' || location.pathname === '/log') && !isAdmin
+            : location.pathname === '/log' && !isAdmin
               ? <Navigate to="/" replace />
-              : <Outlet />}
+              : <Outlet context={{ isAdmin: Boolean(isAdmin) }} />}
         </Box>
       </Box>
       <Footer />
