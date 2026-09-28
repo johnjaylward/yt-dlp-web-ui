@@ -299,8 +299,14 @@ func BulkDownload(mdb *kv.Store) http.HandlerFunc {
 				return
 			}
 
-			if _, err := io.Copy(wr, fd); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+			_, copyErr := io.Copy(wr, fd)
+			closeErr := fd.Close()
+			if copyErr != nil {
+				http.Error(w, copyErr.Error(), http.StatusInternalServerError)
+				return
+			}
+			if closeErr != nil {
+				http.Error(w, closeErr.Error(), http.StatusInternalServerError)
 				return
 			}
 		}

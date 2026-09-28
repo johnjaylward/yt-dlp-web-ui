@@ -28,6 +28,7 @@ func WebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer c.Close()
+	c.SetReadLimit(middlewares.MaxRequestBodyBytes)
 
 	// notify client that conn is open and ok
 	c.WriteJSON(struct{ Status string }{Status: "connected"})

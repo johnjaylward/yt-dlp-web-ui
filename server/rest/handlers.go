@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal"
+	middlewares "github.com/marcopiovanello/yt-dlp-web-ui/v4/server/middleware"
 )
 
 type Handler struct {
@@ -26,6 +27,11 @@ func (h *Handler) Exec() http.HandlerFunc {
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if middlewares.IsOwnFileDownloadURL(req.URL, r.Host) {
+			http.Error(w, "cannot download a filebrowser link served by this application", http.StatusBadRequest)
+			return
 		}
 
 		id, err := h.service.Exec(req)
@@ -51,6 +57,11 @@ func (h *Handler) ExecPlaylist() http.HandlerFunc {
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if middlewares.IsOwnFileDownloadURL(req.URL, r.Host) {
+			http.Error(w, "cannot download a filebrowser link served by this application", http.StatusBadRequest)
+			return
 		}
 
 		err := h.service.ExecPlaylist(req)
@@ -76,6 +87,10 @@ func (h *Handler) ExecLivestream() http.HandlerFunc {
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if middlewares.IsOwnFileDownloadURL(req.URL, r.Host) {
+			http.Error(w, "cannot download a filebrowser link served by this application", http.StatusBadRequest)
 			return
 		}
 

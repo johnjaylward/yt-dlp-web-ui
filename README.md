@@ -247,6 +247,10 @@ When `openid.email_whitelist` is set, the default `openid.require_verified_email
 
 `cors.allowed_origins` is an optional YAML list of origins allowed to make cross-origin browser requests, for example `https://ui.example.com` (include the scheme and port when needed, without a path). An empty or omitted list allows same-origin use only. The Docker environment variable `APP_CORS_ALLOWED_ORIGINS` accepts a comma-separated list; setting it to `*` allows any origin and should be used only when that broader policy is intended. RPC and log WebSocket connections use the same origin policy.
 
+### URL access and network security
+
+Authenticated users can ask yt-dlp to access URLs from the server. This may include services reachable only from the server's network, including private or loopback addresses. Treat download access as trusted-user access; the application does not currently enforce a general outbound network policy. The direct download, playlist, and livestream REST endpoints reject links to this application's own `/filebrowser/d/` and `/filebrowser/v/` endpoints when the link host matches the request host, to prevent recursive downloads of served files. This check does not replace an outbound network policy for other URLs or ingestion paths.
+
 ### Systemd integration
 By defining a service file in `/etc/systemd/system/yt-dlp-webui.service` yt-dlp webui can be launched as in background.
 

@@ -178,6 +178,7 @@ func newServer(c serverConfig) *http.Server {
 	rpc.Register(service)
 
 	r := chi.NewRouter()
+	r.Use(middlewares.LimitRequestBody)
 
 	corsMiddleware := cors.New(cors.Options{
 		AllowOriginFunc: func(r *http.Request, origin string) bool {
