@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/common"
+	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/config"
 	"github.com/marcopiovanello/yt-dlp-web-ui/v4/server/internal"
 )
 
@@ -131,6 +132,13 @@ func TestStartMarksRejectedArgumentsAsErrored(t *testing.T) {
 }
 
 func TestArgsSanitizerAllowsDefaultFrontendArgument(t *testing.T) {
+	configDir := t.TempDir()
+	cfg := config.Instance()
+	previousConfigPath := cfg.Path()
+	cfg.SetPath(filepath.Join(configDir, "config.yml"))
+	t.Cleanup(func() { cfg.SetPath(previousConfigPath) })
+	archivePath := filepath.Join(cfg.Dir(), "archive.txt")
+
 	params, err := argsSanitizer([]string{
 		"--no-mtime",
 		"--cookies=cookies.txt",
@@ -138,7 +146,7 @@ func TestArgsSanitizerAllowsDefaultFrontendArgument(t *testing.T) {
 		"bestvideo+bestaudio",
 		"--break-on-existing",
 		"--download-archive",
-		"/config/archive.txt",
+		archivePath,
 	})
 	if err != nil {
 		t.Fatalf("argsSanitizer rejected a built-in UI or subscription argument: %v", err)
@@ -150,6 +158,11 @@ func TestArgsSanitizerAllowsDefaultFrontendArgument(t *testing.T) {
 
 func TestCleanupFailedArtifactsRemovesOnlyJobTempDirectory(t *testing.T) {
 	root := t.TempDir()
+	cfg := config.Instance()
+	previousDownloadPath := cfg.Paths.DownloadPath
+	cfg.Paths.DownloadPath = root
+	t.Cleanup(func() { cfg.Paths.DownloadPath = previousDownloadPath })
+
 	d := NewGenericDownload("https://example.com/video", nil).(*GenericDownloader)
 	d.output.Path = root
 	d.progress.Status = internal.StatusErrored

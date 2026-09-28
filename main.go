@@ -69,6 +69,7 @@ func main() {
 	}
 
 	cfg := config.Instance()
+	cfg.SetPath(configFile)
 	if err := v.Unmarshal(&cfg); err != nil {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)

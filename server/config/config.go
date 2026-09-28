@@ -86,3 +86,6 @@ func (c *Config) Dir() string { return filepath.Dir(c.path) }
 
 // Absolute path of the config file
 func (c *Config) Path() string { return c.path }
+
+// SetPath records the config file location used to resolve relative config data.
+func (c *Config) SetPath(path string) { c.path = path }
