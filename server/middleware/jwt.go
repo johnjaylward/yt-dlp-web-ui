@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"context"
+	"crypto/hmac"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -44,6 +45,25 @@ func Authenticated(next http.Handler) http.Handler {
 		}
 
 		principal := claims.Principal
+		if principal.AuthSource == session.AuthSourceLocal {
+			authConfig := config.Instance().Authentication
+			isAdmin := !config.Instance().OpenId.UseOpenId
+			if authConfig.IsAdmin != nil {
+				isAdmin = *authConfig.IsAdmin
+			}
+			fingerprint, fingerprintErr := session.FingerprintLocalAuth(session.LocalAuthConfig{
+				Enabled:      authConfig.RequireAuth,
+				Username:     authConfig.Username,
+				PasswordHash: authConfig.PasswordHash,
+				IsAdmin:      isAdmin,
+			})
+			if fingerprintErr != nil || principal.Username != authConfig.Username ||
+				!hmac.Equal([]byte(fingerprint), []byte(claims.LocalAuthFingerprint)) {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+
 		user := principal.Username
 		if user == "" {
 			user = principal.ID

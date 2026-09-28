@@ -1,6 +1,7 @@
 package session
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -38,7 +39,15 @@ type Principal struct {
 
 type Claims struct {
 	Principal
+	LocalAuthFingerprint string `json:"local_auth_fingerprint,omitempty"`
 	jwt.RegisteredClaims
+}
+
+type LocalAuthConfig struct {
+	Enabled      bool
+	Username     string
+	PasswordHash string
+	IsAdmin      bool
 }
 
 func NewLocalPrincipal(username string, isAdmin bool) (Principal, error) {
@@ -69,6 +78,34 @@ func NewOIDCPrincipal(issuer, subject, username string, isAdmin bool) (Principal
 }
 
 func Sign(principal Principal) (string, time.Time, error) {
+	if principal.AuthSource == AuthSourceLocal {
+		return "", time.Time{}, errors.New("local sessions require an authentication configuration fingerprint")
+	}
+	return sign(principal, "")
+}
+
+func SignLocal(principal Principal, auth LocalAuthConfig) (string, time.Time, error) {
+	if principal.AuthSource != AuthSourceLocal || principal.Username != auth.Username {
+		return "", time.Time{}, errors.New("local session does not match the authentication configuration")
+	}
+	fingerprint, err := FingerprintLocalAuth(auth)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return sign(principal, fingerprint)
+}
+
+func FingerprintLocalAuth(auth LocalAuthConfig) (string, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return "", errors.New("JWT_SECRET is not configured")
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	fmt.Fprintf(mac, "local-auth-v1\x00%t\x00%s\x00%s\x00%t", auth.Enabled, auth.Username, auth.PasswordHash, auth.IsAdmin)
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+func sign(principal Principal, localAuthFingerprint string) (string, time.Time, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		return "", time.Time{}, errors.New("JWT_SECRET is not configured")
@@ -82,7 +119,8 @@ func Sign(principal Principal) (string, time.Time, error) {
 	issuedAt := time.Now().UTC()
 	expiresAt := issuedAt.Add(Lifetime)
 	claims := Claims{
-		Principal: principal,
+		Principal:            principal,
+		LocalAuthFingerprint: localAuthFingerprint,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    Issuer,
 			Subject:   principal.ID,
@@ -116,6 +154,9 @@ func Parse(value string) (*Claims, error) {
 	}
 	if err := validatePrincipal(claims.Principal); err != nil {
 		return nil, err
+	}
+	if claims.AuthSource == AuthSourceLocal && claims.LocalAuthFingerprint == "" {
+		return nil, errors.New("local session is missing its authentication configuration fingerprint")
 	}
 	return claims, nil
 }

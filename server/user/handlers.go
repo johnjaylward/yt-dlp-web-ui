@@ -79,7 +79,13 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	tokenString, expiresAt, err := session.Sign(principal)
+	localAuth := session.LocalAuthConfig{
+		Enabled:      config.Authentication.RequireAuth,
+		Username:     config.Authentication.Username,
+		PasswordHash: config.Authentication.PasswordHash,
+		IsAdmin:      isAdmin,
+	}
+	tokenString, expiresAt, err := session.SignLocal(principal, localAuth)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
